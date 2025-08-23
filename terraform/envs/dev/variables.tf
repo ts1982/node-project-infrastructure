@@ -42,3 +42,36 @@ variable "allowed_http_cidrs" {
   description = "CIDR blocks allowed to access HTTP/HTTPS"
   type        = list(string)
 }
+
+# S3 + CloudFront Variables
+variable "s3_frontend_bucket" {
+  description = "S3 bucket name for frontend"
+  type        = string
+}
+
+variable "frontend_domain" {
+  description = "Frontend domain name"
+  type        = string
+}
+
+variable "api_domain" {
+  description = "API domain name"
+  type        = string
+}
+
+variable "acm_arn_us_east_1" {
+  description = "ACM certificate ARN (us-east-1)"
+  type        = string
+}
+
+# Route53 Variables
+variable "route53_zone_id" {
+  description = "Route53 hosted zone ID"
+  type        = string
+}
+
+variable "record_ttl" {
+  description = "TTL for DNS records"
+  type        = number
+  default     = 60
+}

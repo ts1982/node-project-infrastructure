@@ -51,3 +51,29 @@ module "ec2" {
   key_pair_name      = var.key_pair_name
   allowed_http_cidrs = var.allowed_http_cidrs
 }
+
+# S3 + CloudFront Module
+module "s3_cloudfront" {
+  source = "../../modules/s3_cloudfront"
+
+  project             = var.project
+  env                 = var.env
+  bucket_name         = var.s3_frontend_bucket
+  domain_name         = var.frontend_domain
+  acm_certificate_arn = var.acm_arn_us_east_1
+}
+
+# Route53 Module
+module "route53" {
+  source = "../../modules/route53"
+
+  project                   = var.project
+  env                       = var.env
+  route53_zone_id           = var.route53_zone_id
+  frontend_domain           = var.frontend_domain
+  api_domain                = var.api_domain
+  cloudfront_domain_name    = module.s3_cloudfront.cloudfront_domain_name
+  cloudfront_hosted_zone_id = module.s3_cloudfront.cloudfront_hosted_zone_id
+  ec2_public_ip             = module.ec2.instance_public_ip
+  record_ttl                = var.record_ttl
+}

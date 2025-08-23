@@ -43,3 +43,30 @@ output "security_group_id" {
   description = "ID of the security group"
   value       = module.ec2.security_group_id
 }
+
+# S3 + CloudFront Outputs
+output "s3_bucket_name" {
+  description = "Name of the S3 bucket"
+  value       = module.s3_cloudfront.s3_bucket_name
+}
+
+output "cloudfront_distribution_id" {
+  description = "ID of the CloudFront distribution"
+  value       = module.s3_cloudfront.cloudfront_distribution_id
+}
+
+output "cloudfront_domain_name" {
+  description = "Domain name of the CloudFront distribution"
+  value       = module.s3_cloudfront.cloudfront_domain_name
+}
+
+# Route53 Outputs
+output "frontend_domain" {
+  description = "Frontend domain FQDN"
+  value       = module.route53.frontend_record_fqdn
+}
+
+output "api_domain" {
+  description = "API domain FQDN"
+  value       = module.route53.api_record_fqdn
+}
