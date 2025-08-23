@@ -1,6 +1,7 @@
 # S3 Bucket for Frontend
 resource "aws_s3_bucket" "frontend" {
-  bucket = var.bucket_name
+  bucket        = var.bucket_name
+  force_destroy = true
 
   tags = {
     Name        = "${var.project}-${var.env}-frontend-bucket"
