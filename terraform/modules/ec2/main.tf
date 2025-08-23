@@ -102,7 +102,7 @@ resource "aws_instance" "main" {
   subnet_id              = var.subnet_id
   iam_instance_profile   = aws_iam_instance_profile.ec2_profile.name
 
-  user_data = base64encode(templatefile("${path.root}/../../../files/user-data.sh", {
+  user_data = base64encode(templatefile("${path.root}/../../../scripts/user-data.sh", {
     project = var.project
     env     = var.env
   }))
