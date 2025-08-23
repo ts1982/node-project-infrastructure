@@ -33,6 +33,16 @@ variable "cloudfront_hosted_zone_id" {
   type        = string
 }
 
+variable "api_cloudfront_domain_name" {
+  description = "API CloudFront distribution domain name"
+  type        = string
+}
+
+variable "api_cloudfront_hosted_zone_id" {
+  description = "API CloudFront distribution hosted zone ID"
+  type        = string
+}
+
 variable "ec2_public_ip" {
   description = "EC2 instance public IP address"
   type        = string

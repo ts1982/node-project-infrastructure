@@ -36,6 +36,14 @@ resource "aws_security_group" "ec2" {
     cidr_blocks = var.allowed_http_cidrs
   }
 
+  # Backend API (port 3000)
+  ingress {
+    from_port   = 3000
+    to_port     = 3000
+    protocol    = "tcp"
+    cidr_blocks = var.allowed_http_cidrs
+  }
+
   # All outbound traffic
   egress {
     from_port   = 0

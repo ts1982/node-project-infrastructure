@@ -63,19 +63,33 @@ module "s3_cloudfront" {
   acm_certificate_arn = var.acm_arn_us_east_1
 }
 
+# CloudFront API Module (Backend)
+module "cloudfront_api" {
+  source = "../../modules/cloudfront_api"
+
+  project             = var.project
+  env                 = var.env
+  api_domain          = var.api_domain
+  ec2_public_ip       = module.ec2.instance_public_ip
+  ec2_public_dns      = module.ec2.instance_public_dns
+  acm_certificate_arn = var.acm_arn_us_east_1
+}
+
 # Route53 Module
 module "route53" {
   source = "../../modules/route53"
 
-  project                   = var.project
-  env                       = var.env
-  route53_zone_id           = var.route53_zone_id
-  frontend_domain           = var.frontend_domain
-  api_domain                = var.api_domain
-  cloudfront_domain_name    = module.s3_cloudfront.cloudfront_domain_name
-  cloudfront_hosted_zone_id = module.s3_cloudfront.cloudfront_hosted_zone_id
-  ec2_public_ip             = module.ec2.instance_public_ip
-  record_ttl                = var.record_ttl
+  project                       = var.project
+  env                           = var.env
+  route53_zone_id               = var.route53_zone_id
+  frontend_domain               = var.frontend_domain
+  api_domain                    = var.api_domain
+  cloudfront_domain_name        = module.s3_cloudfront.cloudfront_domain_name
+  cloudfront_hosted_zone_id     = module.s3_cloudfront.cloudfront_hosted_zone_id
+  api_cloudfront_domain_name    = module.cloudfront_api.cloudfront_domain_name
+  api_cloudfront_hosted_zone_id = module.cloudfront_api.cloudfront_hosted_zone_id
+  ec2_public_ip                 = module.ec2.instance_public_ip
+  record_ttl                    = var.record_ttl
 }
 
 # ECR module

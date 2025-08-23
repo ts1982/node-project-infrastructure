@@ -60,6 +60,17 @@ output "cloudfront_domain_name" {
   value       = module.s3_cloudfront.cloudfront_domain_name
 }
 
+# API CloudFront Outputs
+output "api_cloudfront_distribution_id" {
+  description = "ID of the API CloudFront distribution"
+  value       = module.cloudfront_api.cloudfront_distribution_id
+}
+
+output "api_cloudfront_domain_name" {
+  description = "Domain name of the API CloudFront distribution"  
+  value       = module.cloudfront_api.cloudfront_domain_name
+}
+
 # Route53 Outputs
 output "frontend_domain" {
   description = "Frontend domain FQDN"
