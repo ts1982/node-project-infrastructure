@@ -75,3 +75,15 @@ variable "record_ttl" {
   type        = number
   default     = 60
 }
+
+# GitHub OIDC Variables
+variable "github_repository" {
+  description = "GitHub repository in the format owner/repo"
+  type        = string
+}
+
+variable "github_branch" {
+  description = "GitHub branch for OIDC trust"
+  type        = string
+  default     = "main"
+}

@@ -70,3 +70,41 @@ output "api_domain" {
   description = "API domain FQDN"
   value       = module.route53.api_record_fqdn
 }
+
+# ECR Outputs
+output "ecr_repository_url" {
+  description = "URL of the ECR repository"
+  value       = module.ecr.repository_url
+}
+
+output "ecr_repository_arn" {
+  description = "ARN of the ECR repository"
+  value       = module.ecr.repository_arn
+}
+
+# Secrets Manager Outputs
+output "backend_secret_arn" {
+  description = "ARN of the backend secrets"
+  value       = module.secrets.backend_secret_arn
+}
+
+output "mysql_secret_arn" {
+  description = "ARN of the MySQL secrets"
+  value       = module.secrets.mysql_secret_arn
+}
+
+# GitHub OIDC Outputs
+output "github_oidc_provider_arn" {
+  description = "ARN of the GitHub OIDC provider"
+  value       = module.github_oidc.github_oidc_provider_arn
+}
+
+output "backend_role_arn" {
+  description = "ARN of the GitHub Actions backend role"
+  value       = module.github_oidc.backend_role_arn
+}
+
+output "frontend_role_arn" {
+  description = "ARN of the GitHub Actions frontend role"
+  value       = module.github_oidc.frontend_role_arn
+}

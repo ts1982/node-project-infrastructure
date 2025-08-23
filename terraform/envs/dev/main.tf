@@ -77,3 +77,39 @@ module "route53" {
   ec2_public_ip             = module.ec2.instance_public_ip
   record_ttl                = var.record_ttl
 }
+
+# ECR module
+module "ecr" {
+  source = "../../modules/ecr"
+
+  project = var.project
+  env     = var.env
+}
+
+# Secrets Manager module
+module "secrets" {
+  source = "../../modules/secrets"
+
+  project             = var.project
+  env                 = var.env
+  backend_secret_name = "${var.project}-${var.env}-backend-secret"
+  mysql_secret_name   = "${var.project}-${var.env}-mysql-secret"
+
+  # Initial empty secrets (will be populated manually or via CI/CD)
+  backend_secrets = {}
+  mysql_secrets   = {}
+}
+
+# GitHub OIDC Provider module
+module "github_oidc" {
+  source = "../../modules/github_oidc"
+
+  project                     = var.project
+  env                         = var.env
+  github_repository           = var.github_repository
+  github_branch               = var.github_branch
+  backend_secret_arn          = module.secrets.backend_secret_arn
+  mysql_secret_arn            = module.secrets.mysql_secret_arn
+  s3_bucket_arn               = module.s3_cloudfront.s3_bucket_arn
+  cloudfront_distribution_arn = module.s3_cloudfront.cloudfront_distribution_arn
+}
