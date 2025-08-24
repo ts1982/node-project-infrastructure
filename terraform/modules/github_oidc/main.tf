@@ -182,7 +182,7 @@ resource "aws_iam_policy" "github_actions_frontend" {
         Action = [
           "cloudfront:CreateInvalidation"
         ]
-        Resource = var.cloudfront_distribution_arn
+        Resource = "*"  # CloudFrontのCreateInvalidationは特定のリソースARNをサポートしていない
       }
     ]
   })

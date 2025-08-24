@@ -1,7 +1,26 @@
+# Generate random IDs for unique secret names
+resource "random_id" "backend_secret" {
+  keepers = {
+    project = var.project
+    env     = var.env
+  }
+  byte_length = 4
+}
+
+resource "random_id" "mysql_secret" {
+  keepers = {
+    project = var.project
+    env     = var.env
+  }
+  byte_length = 4
+}
+
 # Secrets Manager Secret for Backend
 resource "aws_secretsmanager_secret" "backend" {
-  name        = var.backend_secret_name
+  name        = "${var.project}-${var.env}-backend-secret-${random_id.backend_secret.hex}"
   description = "Backend application secrets for ${var.project} ${var.env}"
+  
+  recovery_window_in_days = 0  # 即座に削除（削除保留なし）
 
   tags = {
     Name        = "${var.project}-${var.env}-backend-secret"
@@ -18,8 +37,10 @@ resource "aws_secretsmanager_secret_version" "backend" {
 
 # Secrets Manager Secret for MySQL
 resource "aws_secretsmanager_secret" "mysql" {
-  name        = var.mysql_secret_name
+  name        = "${var.project}-${var.env}-mysql-secret-${random_id.mysql_secret.hex}"
   description = "MySQL database secrets for ${var.project} ${var.env}"
+  
+  recovery_window_in_days = 0  # 即座に削除（削除保留なし）
 
   tags = {
     Name        = "${var.project}-${var.env}-mysql-secret"

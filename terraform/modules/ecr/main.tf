@@ -22,24 +22,11 @@ resource "aws_ecr_lifecycle_policy" "backend" {
     rules = [
       {
         rulePriority = 1
-        description  = "Keep last 1 image"
+        description  = "Keep only 1 latest image (by creation date)"
         selection = {
-          tagStatus   = "tagged"
+          tagStatus   = "any"  # タグ有り無し関係なく
           countType   = "imageCountMoreThan"
-          countNumber = 1
-        }
-        action = {
-          type = "expire"
-        }
-      },
-      {
-        rulePriority = 2
-        description  = "Delete untagged images older than 1 day"
-        selection = {
-          tagStatus   = "untagged"
-          countType   = "sinceImagePushed"
-          countUnit   = "days"
-          countNumber = 1
+          countNumber = 1  # 最新の1つのみ保持
         }
         action = {
           type = "expire"
