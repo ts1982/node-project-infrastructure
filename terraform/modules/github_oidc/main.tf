@@ -180,9 +180,10 @@ resource "aws_iam_policy" "github_actions_frontend" {
       {
         Effect = "Allow"
         Action = [
-          "cloudfront:CreateInvalidation"
+          "cloudfront:CreateInvalidation",
+          "cloudfront:ListDistributions"
         ]
-        Resource = "*"  # CloudFrontのCreateInvalidationは特定のリソースARNをサポートしていない
+        Resource = "*"  # CloudFrontのCreateInvalidationとListDistributionsは特定のリソースARNをサポートしていない
       }
     ]
   })
