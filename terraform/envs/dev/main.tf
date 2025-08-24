@@ -54,6 +54,9 @@ module "ec2" {
   instance_type      = var.instance_type
   key_pair_name      = var.key_pair_name
   allowed_http_cidrs = var.allowed_http_cidrs
+  backend_secret_arn = module.secrets.backend_secret_arn
+  mysql_secret_arn   = module.secrets.mysql_secret_arn
+  root_volume_size   = var.root_volume_size
 }
 
 # S3 + CloudFront Module
@@ -113,9 +116,9 @@ module "secrets" {
   backend_secret_name = "${var.project}-${var.env}-backend-secret"
   mysql_secret_name   = "${var.project}-${var.env}-mysql-secret"
 
-  # Initial empty secrets (will be populated manually or via CI/CD)
-  backend_secrets = {}
-  mysql_secrets   = {}
+  # Secrets from terraform.tfvars
+  backend_secrets = var.backend_secrets
+  mysql_secrets   = var.mysql_secrets
 }
 
 # GitHub OIDC Provider module

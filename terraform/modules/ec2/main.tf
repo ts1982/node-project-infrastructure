@@ -95,6 +95,41 @@ resource "aws_iam_role_policy_attachment" "ecr_read_only" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
 }
 
+# Custom policy for Secrets Manager access
+resource "aws_iam_policy" "secrets_manager_read" {
+  name        = "${var.project}-${var.env}-secrets-manager-read"
+  description = "Policy to read from Secrets Manager"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:GetSecretValue",
+          "secretsmanager:DescribeSecret"
+        ]
+        Resource = [
+          var.backend_secret_arn,
+          var.mysql_secret_arn
+        ]
+      }
+    ]
+  })
+
+  tags = {
+    Name        = "${var.project}-${var.env}-secrets-manager-read"
+    Project     = var.project
+    Environment = var.env
+  }
+}
+
+# Attach Secrets Manager policy
+resource "aws_iam_role_policy_attachment" "secrets_manager_read" {
+  role       = aws_iam_role.ec2_role.name
+  policy_arn = aws_iam_policy.secrets_manager_read.arn
+}
+
 # IAM Instance Profile
 resource "aws_iam_instance_profile" "ec2_profile" {
   name = "${var.project}-${var.env}-ec2-profile"
@@ -115,6 +150,14 @@ resource "aws_instance" "main" {
   vpc_security_group_ids = [aws_security_group.ec2.id]
   subnet_id              = var.subnet_id
   iam_instance_profile   = aws_iam_instance_profile.ec2_profile.name
+
+  # EBS ボリューム設定
+  root_block_device {
+    volume_type           = "gp3"
+    volume_size           = var.root_volume_size
+    delete_on_termination = true
+    encrypted             = true
+  }
 
   user_data = base64encode(templatefile("${path.root}/../../../scripts/user-data.sh", {
     project = var.project

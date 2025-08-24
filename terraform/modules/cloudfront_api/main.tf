@@ -3,7 +3,7 @@ resource "aws_cloudfront_distribution" "api" {
   origin {
     domain_name = var.ec2_public_dns
     origin_id   = "EC2-API-${var.project}-${var.env}"
-    
+
     custom_origin_config {
       http_port              = 3000
       https_port             = 443
@@ -31,7 +31,7 @@ resource "aws_cloudfront_distribution" "api" {
     }
 
     min_ttl     = 0
-    default_ttl = 0    # API レスポンスはキャッシュしない
+    default_ttl = 0 # API レスポンスはキャッシュしない
     max_ttl     = 0
   }
 
@@ -75,11 +75,11 @@ resource "aws_cloudfront_distribution" "api" {
     }
 
     min_ttl     = 0
-    default_ttl = 60   # ヘルスチェックは1分キャッシュ
+    default_ttl = 60 # ヘルスチェックは1分キャッシュ
     max_ttl     = 300
   }
 
-  price_class = "PriceClass_100"  # コスト最適化
+  price_class = "PriceClass_100" # コスト最適化
 
   restrictions {
     geo_restriction {

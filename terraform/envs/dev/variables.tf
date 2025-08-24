@@ -87,3 +87,24 @@ variable "github_branch" {
   type        = string
   default     = "main"
 }
+
+# Secrets Variables
+variable "backend_secrets" {
+  description = "Backend application secrets"
+  type        = map(string)
+  default     = {}
+  sensitive   = true
+}
+
+variable "mysql_secrets" {
+  description = "MySQL database secrets"
+  type        = map(string)
+  default     = {}
+  sensitive   = true
+}
+
+variable "root_volume_size" {
+  description = "Size of the root EBS volume in GB"
+  type        = number
+  default     = 8
+}

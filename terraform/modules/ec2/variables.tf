@@ -35,3 +35,19 @@ variable "allowed_http_cidrs" {
   type        = list(string)
   default     = ["0.0.0.0/0"]
 }
+
+variable "backend_secret_arn" {
+  description = "ARN of the backend secrets in Secrets Manager"
+  type        = string
+}
+
+variable "mysql_secret_arn" {
+  description = "ARN of the MySQL secrets in Secrets Manager"
+  type        = string
+}
+
+variable "root_volume_size" {
+  description = "Size of the root EBS volume in GB"
+  type        = number
+  default     = 8
+}

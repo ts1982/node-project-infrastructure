@@ -103,6 +103,14 @@ resource "aws_iam_policy" "github_actions_backend" {
           "ec2:DescribeInstances"
         ]
         Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "cloudfront:CreateInvalidation",
+          "cloudfront:ListDistributions"
+        ]
+        Resource = "*"
       }
     ]
   })
@@ -183,7 +191,7 @@ resource "aws_iam_policy" "github_actions_frontend" {
           "cloudfront:CreateInvalidation",
           "cloudfront:ListDistributions"
         ]
-        Resource = "*"  # CloudFrontのCreateInvalidationとListDistributionsは特定のリソースARNをサポートしていない
+        Resource = "*" # CloudFrontのCreateInvalidationとListDistributionsは特定のリソースARNをサポートしていない
       }
     ]
   })
