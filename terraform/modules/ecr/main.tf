@@ -2,6 +2,7 @@
 resource "aws_ecr_repository" "backend" {
   name                 = "${var.project}-backend"
   image_tag_mutability = "MUTABLE"
+  force_delete         = true  # terraform destroy時に強制削除
 
   image_scanning_configuration {
     scan_on_push = true
@@ -14,7 +15,7 @@ resource "aws_ecr_repository" "backend" {
   }
 }
 
-# ECR Lifecycle Policy
+# ECR Lifecycle Policy - 即時全削除
 resource "aws_ecr_lifecycle_policy" "backend" {
   repository = aws_ecr_repository.backend.name
 
@@ -22,11 +23,12 @@ resource "aws_ecr_lifecycle_policy" "backend" {
     rules = [
       {
         rulePriority = 1
-        description  = "Keep only 1 latest image (by creation date)"
+        description  = "Delete all images after 1 day for cost optimization"
         selection = {
-          tagStatus   = "any"  # タグ有り無し関係なく
-          countType   = "imageCountMoreThan"
-          countNumber = 1  # 最新の1つのみ保持
+          tagStatus   = "any"
+          countType   = "sinceImagePushed"
+          countUnit   = "days"
+          countNumber = 1  # 1日後に削除
         }
         action = {
           type = "expire"

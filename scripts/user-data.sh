@@ -30,24 +30,31 @@ yum install -y amazon-ssm-agent
 systemctl start amazon-ssm-agent
 systemctl enable amazon-ssm-agent
 
-# EBS Volume Setup
+# EBS Volume Setup - MySQL データ永続化
 EBS_DEVICE="/dev/nvme1n1"
-MOUNT_POINT="/var/lib/docker-data"
+MYSQL_DATA_DIR="/var/lib/mysql"
 
 while [ ! -e $EBS_DEVICE ]; do
+    echo "Waiting for EBS volume to attach..."
     sleep 5
 done
 
+# EBSボリュームがフォーマットされていない場合のみフォーマット
 if ! blkid $EBS_DEVICE; then
+    echo "Formatting EBS volume..."
     mkfs.ext4 $EBS_DEVICE
 fi
 
-mkdir -p $MOUNT_POINT
-mount $EBS_DEVICE $MOUNT_POINT
-echo "$EBS_DEVICE $MOUNT_POINT ext4 defaults,nofail 0 2" >> /etc/fstab
+# MySQLデータディレクトリを直接EBSボリュームにマウント
+mkdir -p $MYSQL_DATA_DIR
+mount $EBS_DEVICE $MYSQL_DATA_DIR
 
-mkdir -p $MOUNT_POINT/mysql-data
-chown -R 999:999 $MOUNT_POINT/mysql-data
+# 永続的マウント設定
+echo "$EBS_DEVICE $MYSQL_DATA_DIR ext4 defaults,nofail 0 2" >> /etc/fstab
+
+# MySQL用のオーナー設定
+chown -R 999:999 $MYSQL_DATA_DIR
+chmod 755 $MYSQL_DATA_DIR
 
 # ECR authentication
 aws ecr get-login-password --region ap-northeast-1 | docker login --username AWS --password-stdin 099355342767.dkr.ecr.ap-northeast-1.amazonaws.com
@@ -77,7 +84,7 @@ services:
       MYSQL_USER: user
       MYSQL_PASSWORD: password
     volumes:
-      - /var/lib/docker-data/mysql-data:/var/lib/mysql
+      - /var/lib/mysql:/var/lib/mysql  # EBSボリュームを直接マウント
     networks:
       - app-network
 
@@ -102,5 +109,42 @@ echo "=== Waiting for application startup ==="
 sleep 10
 echo "=== Testing API Health ==="
 curl -f http://localhost:3000/health || echo "API health check failed - may need more startup time"
+
+# EC2起動時自動デプロイサービス設定
+cat > /etc/systemd/system/auto-deploy.service << 'EOF'
+[Unit]
+Description=Auto Deploy Application on Boot
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/bin/bash -c "
+aws ecr get-login-password --region ap-northeast-1 | docker login --username AWS --password-stdin 099355342767.dkr.ecr.ap-northeast-1.amazonaws.com
+cd /home/ec2-user/app
+/usr/local/bin/docker-compose pull
+/usr/local/bin/docker-compose up -d
+"
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl enable auto-deploy.service
+
+# ECRイメージが存在する場合、アプリケーションを起動
+echo "=== Checking for ECR Images ==="
+aws ecr describe-images --repository-name studify-backend --region ap-northeast-1 > /dev/null 2>&1
+if [ $? -eq 0 ]; then
+    echo "=== ECR Images Found - Starting Application ==="
+    cd /home/ec2-user/app
+    sudo -u ec2-user /usr/local/bin/docker-compose pull && \
+    sudo -u ec2-user /usr/local/bin/docker-compose up -d
+    echo "=== Application Started ==="
+else
+    echo "=== No ECR Images Found - Application will start when images are pushed ==="
+fi
 
 echo "=== EC2 Setup Completed ==="
