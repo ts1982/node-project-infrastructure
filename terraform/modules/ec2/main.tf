@@ -1,11 +1,11 @@
-# Data source for Amazon Linux 2023 AMI
+# Data source for Amazon Linux 2 AMI (smaller footprint)
 data "aws_ami" "amazon_linux" {
   most_recent = true
   owners      = ["amazon"]
 
   filter {
     name   = "name"
-    values = ["al2023-ami-*-x86_64"]
+    values = ["amzn2-ami-hvm-*-x86_64-gp2"]
   }
 
   filter {
@@ -142,31 +142,50 @@ resource "aws_iam_instance_profile" "ec2_profile" {
   }
 }
 
+# EBS Volume for Database Data Persistence
+resource "aws_ebs_volume" "db_data" {
+  availability_zone = aws_instance.main.availability_zone
+  size              = 5
+  type              = "gp3"
+  encrypted         = true
+
+  tags = {
+    Name        = "${var.project}-${var.env}-db-data"
+    Project     = var.project
+    Environment = var.env
+    Purpose     = "Database"
+  }
+}
+
+# Attach EBS Volume to EC2
+resource "aws_volume_attachment" "db_data" {
+  device_name = "/dev/sdf"
+  volume_id   = aws_ebs_volume.db_data.id
+  instance_id = aws_instance.main.id
+}
+
 # EC2 Instance
 resource "aws_instance" "main" {
   ami                    = data.aws_ami.amazon_linux.id
   instance_type          = var.instance_type
-  key_name               = var.key_pair_name
-  vpc_security_group_ids = [aws_security_group.ec2.id]
   subnet_id              = var.subnet_id
+  vpc_security_group_ids = [aws_security_group.ec2.id]
   iam_instance_profile   = aws_iam_instance_profile.ec2_profile.name
 
-  # EBS ボリューム設定
+  associate_public_ip_address = true
+
   root_block_device {
-    volume_type           = "gp3"
     volume_size           = var.root_volume_size
-    delete_on_termination = true
+    volume_type           = "gp3"
     encrypted             = true
+    delete_on_termination = true
   }
 
-  user_data = base64encode(templatefile("${path.root}/../../../scripts/user-data.sh", {
-    project = var.project
-    env     = var.env
-  }))
+  user_data = base64encode(file("${path.root}/../../../scripts/user-data.sh"))
 
   tags = {
     Name        = "${var.project}-${var.env}-ec2"
-    Project     = var.project
     Environment = var.env
+    Project     = var.project
   }
 }

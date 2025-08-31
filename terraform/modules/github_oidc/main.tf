@@ -92,6 +92,7 @@ resource "aws_iam_policy" "github_actions_backend" {
         Effect = "Allow"
         Action = [
           "ssm:SendCommand",
+          "ssm:GetCommandInvocation",
           "ssm:ListCommandInvocations",
           "ssm:DescribeInstanceInformation"
         ]
@@ -108,7 +109,10 @@ resource "aws_iam_policy" "github_actions_backend" {
         Effect = "Allow"
         Action = [
           "cloudfront:CreateInvalidation",
-          "cloudfront:ListDistributions"
+          "cloudfront:ListDistributions",
+          "cloudfront:GetDistribution",
+          "cloudfront:GetDistributionConfig",
+          "cloudfront:UpdateDistribution"
         ]
         Resource = "*"
       }
