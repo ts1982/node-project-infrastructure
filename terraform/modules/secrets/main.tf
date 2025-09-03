@@ -29,10 +29,16 @@ resource "aws_secretsmanager_secret" "backend" {
   }
 }
 
-# Backend Secret Version (initial empty version)
+# Backend Secret Version with auto-generated DATABASE_URL
 resource "aws_secretsmanager_secret_version" "backend" {
-  secret_id     = aws_secretsmanager_secret.backend.id
-  secret_string = jsonencode(var.backend_secrets)
+  secret_id = aws_secretsmanager_secret.backend.id
+  secret_string = jsonencode(merge(
+    var.backend_secrets,
+    {
+      # MySQLの設定から自動でDATABASE_URLを生成
+      DATABASE_URL = "mysql://${var.mysql_secrets.username}:${var.mysql_secrets.password}@${var.mysql_secrets.host}:${var.mysql_secrets.port}/${var.mysql_secrets.database}"
+    }
+  ))
 }
 
 # Secrets Manager Secret for MySQL
