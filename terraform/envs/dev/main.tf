@@ -43,6 +43,20 @@ module "vpc" {
   availability_zone  = var.availability_zone
 }
 
+# EBS Module
+module "ebs" {
+  source = "../../modules/ebs"
+
+  project           = var.project
+  env               = var.env
+  availability_zone = var.availability_zone
+  volume_size       = var.ebs_volume_size
+  volume_type       = var.ebs_volume_type
+  iops              = var.ebs_iops
+  throughput        = var.ebs_throughput
+  instance_id       = module.ec2.instance_id
+}
+
 # EC2 Module
 module "ec2" {
   source = "../../modules/ec2"

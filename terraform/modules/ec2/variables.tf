@@ -49,5 +49,5 @@ variable "mysql_secret_arn" {
 variable "root_volume_size" {
   description = "Size of the root EBS volume in GB"
   type        = number
-  default     = 4
+  default     = 8
 }

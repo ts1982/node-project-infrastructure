@@ -15,7 +15,7 @@ resource "aws_ecr_repository" "backend" {
   }
 }
 
-# ECR Lifecycle Policy - 即時全削除
+# ECR Lifecycle Policy - 最新1つ保持（destroy対応）
 resource "aws_ecr_lifecycle_policy" "backend" {
   repository = aws_ecr_repository.backend.name
 
@@ -23,12 +23,11 @@ resource "aws_ecr_lifecycle_policy" "backend" {
     rules = [
       {
         rulePriority = 1
-        description  = "Delete all images after 1 day for cost optimization"
+        description  = "Keep only the latest 1 image (survives destroy)"
         selection = {
           tagStatus   = "any"
-          countType   = "sinceImagePushed"
-          countUnit   = "days"
-          countNumber = 1  # 1日後に削除
+          countType   = "imageCountMoreThan"
+          countNumber = 1  # 最新の1つのみ保持
         }
         action = {
           type = "expire"
@@ -36,4 +35,15 @@ resource "aws_ecr_lifecycle_policy" "backend" {
       }
     ]
   })
+
+  # ECRリポジトリより先に削除されないよう依存関係を明示
+  depends_on = [aws_ecr_repository.backend]
+  
+  # destroy時にライフサイクルポリシーを最後に削除
+  lifecycle {
+    create_before_destroy = false
+  }
 }
+
+# AWS region data source
+data "aws_region" "current" {}

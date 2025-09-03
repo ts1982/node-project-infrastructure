@@ -142,28 +142,6 @@ resource "aws_iam_instance_profile" "ec2_profile" {
   }
 }
 
-# EBS Volume for Database Data Persistence
-resource "aws_ebs_volume" "db_data" {
-  availability_zone = aws_instance.main.availability_zone
-  size              = 5
-  type              = "gp3"
-  encrypted         = true
-
-  tags = {
-    Name        = "${var.project}-${var.env}-db-data"
-    Project     = var.project
-    Environment = var.env
-    Purpose     = "Database"
-  }
-}
-
-# Attach EBS Volume to EC2
-resource "aws_volume_attachment" "db_data" {
-  device_name = "/dev/sdf"
-  volume_id   = aws_ebs_volume.db_data.id
-  instance_id = aws_instance.main.id
-}
-
 # EC2 Instance
 resource "aws_instance" "main" {
   ami                    = data.aws_ami.amazon_linux.id

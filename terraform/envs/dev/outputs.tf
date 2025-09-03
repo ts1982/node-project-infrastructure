@@ -29,6 +29,17 @@ output "instance_id" {
   value       = module.ec2.instance_id
 }
 
+# EBS Outputs
+output "ebs_volume_id" {
+  description = "ID of the EBS volume for database data"
+  value       = module.ebs.volume_id
+}
+
+output "ebs_volume_arn" {
+  description = "ARN of the EBS volume for database data"
+  value       = module.ebs.volume_arn
+}
+
 output "instance_public_ip" {
   description = "Public IP address of the EC2 instance"
   value       = module.ec2.instance_public_ip

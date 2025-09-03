@@ -28,12 +28,3 @@ output "iam_role_arn" {
   value       = aws_iam_role.ec2_role.arn
 }
 
-output "ebs_volume_id" {
-  description = "ID of the EBS volume for database data"
-  value       = aws_ebs_volume.db_data.id
-}
-
-output "ebs_volume_device" {
-  description = "Device name of the attached EBS volume"
-  value       = aws_volume_attachment.db_data.device_name
-}

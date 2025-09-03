@@ -108,3 +108,28 @@ variable "root_volume_size" {
   type        = number
   default     = 8
 }
+
+# EBS Variables
+variable "ebs_volume_size" {
+  description = "Size of the database EBS volume in GB"
+  type        = number
+  default     = 1
+}
+
+variable "ebs_volume_type" {
+  description = "Type of EBS volume"
+  type        = string
+  default     = "gp3"
+}
+
+variable "ebs_iops" {
+  description = "IOPS for the EBS volume (minimum 100 for gp3)"
+  type        = number
+  default     = 100
+}
+
+variable "ebs_throughput" {
+  description = "Throughput for the EBS volume in MB/s"
+  type        = number
+  default     = 125
+}
