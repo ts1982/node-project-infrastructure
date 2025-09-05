@@ -36,7 +36,7 @@ resource "aws_secretsmanager_secret_version" "backend" {
     var.backend_secrets,
     {
       # MySQLの設定から自動でDATABASE_URLを生成
-      DATABASE_URL = "mysql://${var.mysql_secrets.username}:${var.mysql_secrets.password}@${var.mysql_secrets.host}:${var.mysql_secrets.port}/${var.mysql_secrets.database}"
+      DATABASE_URL = "mysql://${var.mysql_secrets["username"]}:${var.mysql_secrets["password"]}@${var.mysql_secrets["host"]}:${var.mysql_secrets["port"]}/${var.mysql_secrets["database"]}"
     }
   ))
 }

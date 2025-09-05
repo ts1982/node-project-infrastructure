@@ -91,6 +91,13 @@ resource "aws_iam_policy" "github_actions_backend" {
       {
         Effect = "Allow"
         Action = [
+          "secretsmanager:ListSecrets"
+        ]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
           "ssm:SendCommand",
           "ssm:GetCommandInvocation",
           "ssm:ListCommandInvocations",

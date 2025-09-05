@@ -61,16 +61,40 @@ aws ecr get-login-password --region ap-northeast-1 | docker login --username AWS
 sudo -u ec2-user mkdir -p /home/ec2-user/.docker
 sudo -u ec2-user aws ecr get-login-password --region ap-northeast-1 | sudo -u ec2-user docker login --username AWS --password-stdin 099355342767.dkr.ecr.ap-northeast-1.amazonaws.com
 
-# Create docker-compose.yml for ECR images
+# Create docker-compose.yml for ECR images with dynamic environment variables
 sudo -u ec2-user mkdir -p /home/ec2-user/app
-cat > /home/ec2-user/app/docker-compose.yml << 'EOF'
+
+# Get secrets from AWS Secrets Manager
+BACKEND_SECRET_ARN="${backend_secret_arn}"
+MYSQL_SECRET_ARN="${mysql_secret_arn}"
+
+# Get backend secrets
+BACKEND_SECRETS=$(aws secretsmanager get-secret-value --secret-id "$BACKEND_SECRET_ARN" --region ap-northeast-1 --query SecretString --output text)
+DATABASE_URL=$(echo "$BACKEND_SECRETS" | jq -r '.DATABASE_URL')
+API_PORT=$(echo "$BACKEND_SECRETS" | jq -r '.API_PORT')
+JWT_SECRET=$(echo "$BACKEND_SECRETS" | jq -r '.JWT_SECRET')
+NODE_ENV=$(echo "$BACKEND_SECRETS" | jq -r '.NODE_ENV')
+CORS_ORIGINS=$(echo "$BACKEND_SECRETS" | jq -r '.CORS_ORIGINS')
+
+# Get MySQL secrets
+MYSQL_SECRETS=$(aws secretsmanager get-secret-value --secret-id "$MYSQL_SECRET_ARN" --region ap-northeast-1 --query SecretString --output text)
+MYSQL_ROOT_PASSWORD=$(echo "$MYSQL_SECRETS" | jq -r '.password')
+MYSQL_DATABASE=$(echo "$MYSQL_SECRETS" | jq -r '.database')
+MYSQL_USER=$(echo "$MYSQL_SECRETS" | jq -r '.username')
+MYSQL_PASSWORD=$(echo "$MYSQL_SECRETS" | jq -r '.password')
+
+cat > /home/ec2-user/app/docker-compose.yml << EOF
 services:
   backend:
     image: 099355342767.dkr.ecr.ap-northeast-1.amazonaws.com/studify-backend:latest
     ports:
       - "3000:3000"
     environment:
-      - DATABASE_URL=mysql://user:password@mysql:3306/todoapp
+      - DATABASE_URL=$DATABASE_URL
+      - API_PORT=$API_PORT
+      - JWT_SECRET=$JWT_SECRET
+      - NODE_ENV=$NODE_ENV
+      - CORS_ORIGINS=$CORS_ORIGINS
     depends_on:
       - mysql
     networks:
@@ -79,10 +103,10 @@ services:
   mysql:
     image: mysql:8.0
     environment:
-      MYSQL_ROOT_PASSWORD: password
-      MYSQL_DATABASE: todoapp
-      MYSQL_USER: user
-      MYSQL_PASSWORD: password
+      MYSQL_ROOT_PASSWORD: $MYSQL_ROOT_PASSWORD
+      MYSQL_DATABASE: $MYSQL_DATABASE
+      MYSQL_USER: $MYSQL_USER
+      MYSQL_PASSWORD: $MYSQL_PASSWORD
     volumes:
       - /var/lib/mysql:/var/lib/mysql  # EBSボリュームを直接マウント
     networks:
@@ -111,7 +135,7 @@ echo "=== Testing API Health ==="
 curl -f http://localhost:3000/health || echo "API health check failed - may need more startup time"
 
 # EC2起動時自動デプロイサービス設定
-cat > /etc/systemd/system/auto-deploy.service << 'EOF'
+cat > /etc/systemd/system/auto-deploy.service << EOF
 [Unit]
 Description=Auto Deploy Application on Boot
 After=docker.service
@@ -123,6 +147,59 @@ User=root
 ExecStart=/bin/bash -c "
 aws ecr get-login-password --region ap-northeast-1 | docker login --username AWS --password-stdin 099355342767.dkr.ecr.ap-northeast-1.amazonaws.com
 cd /home/ec2-user/app
+
+# Update docker-compose.yml with latest secrets
+BACKEND_SECRET_ARN='${backend_secret_arn}'
+MYSQL_SECRET_ARN='${mysql_secret_arn}'
+
+BACKEND_SECRETS=\\\$(aws secretsmanager get-secret-value --secret-id \\\"\\\$BACKEND_SECRET_ARN\\\" --region ap-northeast-1 --query SecretString --output text)
+DATABASE_URL=\\\$(echo \\\"\\\$BACKEND_SECRETS\\\" | jq -r '.DATABASE_URL')
+API_PORT=\\\$(echo \\\"\\\$BACKEND_SECRETS\\\" | jq -r '.API_PORT')
+JWT_SECRET=\\\$(echo \\\"\\\$BACKEND_SECRETS\\\" | jq -r '.JWT_SECRET')
+NODE_ENV=\\\$(echo \\\"\\\$BACKEND_SECRETS\\\" | jq -r '.NODE_ENV')
+CORS_ORIGINS=\\\$(echo \\\"\\\$BACKEND_SECRETS\\\" | jq -r '.CORS_ORIGINS')
+
+MYSQL_SECRETS=\\\$(aws secretsmanager get-secret-value --secret-id \\\"\\\$MYSQL_SECRET_ARN\\\" --region ap-northeast-1 --query SecretString --output text)
+MYSQL_ROOT_PASSWORD=\\\$(echo \\\"\\\$MYSQL_SECRETS\\\" | jq -r '.password')
+MYSQL_DATABASE=\\\$(echo \\\"\\\$MYSQL_SECRETS\\\" | jq -r '.database')
+MYSQL_USER=\\\$(echo \\\"\\\$MYSQL_SECRETS\\\" | jq -r '.username')
+MYSQL_PASSWORD=\\\$(echo \\\"\\\$MYSQL_SECRETS\\\" | jq -r '.password')
+
+cat > /home/ec2-user/app/docker-compose.yml << COMPOSE_EOF
+services:
+  backend:
+    image: 099355342767.dkr.ecr.ap-northeast-1.amazonaws.com/studify-backend:latest
+    ports:
+      - \\\"3000:3000\\\"
+    environment:
+      - DATABASE_URL=\\\$DATABASE_URL
+      - API_PORT=\\\$API_PORT
+      - JWT_SECRET=\\\$JWT_SECRET
+      - NODE_ENV=\\\$NODE_ENV
+      - CORS_ORIGINS=\\\$CORS_ORIGINS
+    depends_on:
+      - mysql
+    networks:
+      - app-network
+
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: \\\$MYSQL_ROOT_PASSWORD
+      MYSQL_DATABASE: \\\$MYSQL_DATABASE
+      MYSQL_USER: \\\$MYSQL_USER
+      MYSQL_PASSWORD: \\\$MYSQL_PASSWORD
+    volumes:
+      - /var/lib/mysql:/var/lib/mysql
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+COMPOSE_EOF
+
+chown -R ec2-user:ec2-user /home/ec2-user/app
 /usr/local/bin/docker-compose pull
 /usr/local/bin/docker-compose up -d
 "

@@ -159,7 +159,10 @@ resource "aws_instance" "main" {
     delete_on_termination = true
   }
 
-  user_data = base64encode(file("${path.root}/../../../scripts/user-data.sh"))
+  user_data = base64encode(templatefile("${path.root}/../../../scripts/user-data.sh", {
+    backend_secret_arn = var.backend_secret_arn
+    mysql_secret_arn   = var.mysql_secret_arn
+  }))
 
   tags = {
     Name        = "${var.project}-${var.env}-ec2"
