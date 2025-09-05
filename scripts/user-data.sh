@@ -52,9 +52,22 @@ mount $EBS_DEVICE $MYSQL_DATA_DIR
 # 永続的マウント設定
 echo "$EBS_DEVICE $MYSQL_DATA_DIR ext4 defaults,nofail 0 2" >> /etc/fstab
 
-# MySQL用のオーナー設定
-chown -R 999:999 $MYSQL_DATA_DIR
-chmod 755 $MYSQL_DATA_DIR
+# MySQL用のディレクトリ構造とオーナー設定
+# マウント後にMySQLデータディレクトリが空かどうかチェック
+if [ ! -d "$MYSQL_DATA_DIR/mysql" ]; then
+    echo "MySQL data directory is empty - setting up for first run..."
+    # MySQLが初期化できるように適切な権限を設定
+    chown -R 999:999 $MYSQL_DATA_DIR
+    chmod 755 $MYSQL_DATA_DIR
+    
+    # MySQLの初期化を確実にするため、lost+found以外を削除
+    find $MYSQL_DATA_DIR -mindepth 1 -maxdepth 1 ! -name "lost+found" -exec rm -rf {} \; 2>/dev/null || true
+else
+    echo "MySQL data directory exists - preserving existing data..."
+    # 既存データがある場合も権限を確認/修正
+    chown -R 999:999 $MYSQL_DATA_DIR
+    chmod 755 $MYSQL_DATA_DIR
+fi
 
 # ECR authentication
 aws ecr get-login-password --region ap-northeast-1 | docker login --username AWS --password-stdin 099355342767.dkr.ecr.ap-northeast-1.amazonaws.com
@@ -96,9 +109,11 @@ services:
       - NODE_ENV=$NODE_ENV
       - CORS_ORIGINS=$CORS_ORIGINS
     depends_on:
-      - mysql
+      mysql:
+        condition: service_healthy
     networks:
       - app-network
+    restart: unless-stopped
 
   mysql:
     image: mysql:8.0
@@ -111,6 +126,13 @@ services:
       - /var/lib/mysql:/var/lib/mysql  # EBSボリュームを直接マウント
     networks:
       - app-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$MYSQL_ROOT_PASSWORD"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
 networks:
   app-network:
@@ -178,9 +200,11 @@ services:
       - NODE_ENV=\\\$NODE_ENV
       - CORS_ORIGINS=\\\$CORS_ORIGINS
     depends_on:
-      - mysql
+      mysql:
+        condition: service_healthy
     networks:
       - app-network
+    restart: unless-stopped
 
   mysql:
     image: mysql:8.0
@@ -193,6 +217,13 @@ services:
       - /var/lib/mysql:/var/lib/mysql
     networks:
       - app-network
+    restart: unless-stopped
+    healthcheck:
+      test: [\\\"CMD\\\", \\\"mysqladmin\\\", \\\"ping\\\", \\\"-h\\\", \\\"localhost\\\", \\\"-u\\\", \\\"root\\\", \\\"-p\\\$MYSQL_ROOT_PASSWORD\\\"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
 networks:
   app-network:
