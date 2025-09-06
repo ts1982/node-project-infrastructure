@@ -63,4 +63,4 @@ temp/
 
 # Terraform plan files
 *.tfplan
-*.tfplan.*
+tfplan
