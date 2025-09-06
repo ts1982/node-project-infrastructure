@@ -51,3 +51,39 @@ variable "root_volume_size" {
   type        = number
   default     = 8
 }
+
+# セキュリティとメンテナンス性のための設定変数
+variable "aws_region" {
+  description = "AWS Region"
+  type        = string
+  default     = "ap-northeast-1"
+}
+
+variable "aws_account_id" {
+  description = "AWS Account ID"
+  type        = string
+}
+
+variable "ecr_repository_name" {
+  description = "ECR Repository name for the backend"
+  type        = string
+  default     = "studify-backend"
+}
+
+variable "ebs_device_path" {
+  description = "EBS device path"
+  type        = string
+  default     = "/dev/nvme1n1"
+}
+
+variable "mysql_data_dir" {
+  description = "MySQL data directory path"
+  type        = string
+  default     = "/var/lib/mysql"
+}
+
+variable "ebs_wait_timeout" {
+  description = "EBS volume attachment timeout in seconds"
+  type        = number
+  default     = 300
+}

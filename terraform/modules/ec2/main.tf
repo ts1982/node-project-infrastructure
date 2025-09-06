@@ -160,8 +160,14 @@ resource "aws_instance" "main" {
   }
 
   user_data = base64encode(templatefile("${path.root}/../../../scripts/user-data.sh", {
-    backend_secret_arn = var.backend_secret_arn
-    mysql_secret_arn   = var.mysql_secret_arn
+    backend_secret_arn  = var.backend_secret_arn
+    mysql_secret_arn    = var.mysql_secret_arn
+    aws_region          = var.aws_region
+    aws_account_id      = var.aws_account_id
+    ecr_repository_name = var.ecr_repository_name
+    ebs_device_path     = var.ebs_device_path
+    mysql_data_dir      = var.mysql_data_dir
+    ebs_wait_timeout    = var.ebs_wait_timeout
   }))
 
   tags = {

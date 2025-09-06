@@ -32,6 +32,10 @@ provider "aws" {
   }
 }
 
+# Data sources for security
+data "aws_caller_identity" "current" {}
+data "aws_region" "current" {}
+
 # VPC Module
 module "vpc" {
   source = "../../modules/vpc"
@@ -71,6 +75,11 @@ module "ec2" {
   backend_secret_arn = module.secrets.backend_secret_arn
   mysql_secret_arn   = module.secrets.mysql_secret_arn
   root_volume_size   = var.root_volume_size
+
+  # セキュリティ設定変数
+  aws_region          = data.aws_region.current.name
+  aws_account_id      = data.aws_caller_identity.current.account_id
+  ecr_repository_name = "studify-backend"
 }
 
 # S3 + CloudFront Module

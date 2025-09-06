@@ -1,16 +1,23 @@
 #!/bin/bash
 
+# セキュアな設定変数
+AWS_REGION="${aws_region}"
+AWS_ACCOUNT_ID="${aws_account_id}"
+ECR_REPOSITORY="${ecr_repository_name}"
+EBS_DEVICE="${ebs_device_path}"
+MYSQL_DATA_DIR="${mysql_data_dir}"
+EBS_WAIT_TIMEOUT=${ebs_wait_timeout}
+
+# ログ設定
 LOG_FILE="/var/log/user-data.log"
 exec > >(tee -a $LOG_FILE)
 exec 2>&1
 
-echo "=== EC2 Setup Started ==="
-
-# System packages
+# パッケージインストール
 yum update -y
-yum install -y docker git jq e2fsprogs
+yum install -y docker git jq e2fsprogs amazon-ssm-agent
 
-# Docker setup
+# Docker設定
 systemctl start docker
 systemctl enable docker
 /usr/sbin/usermod -a -G docker ec2-user
@@ -18,7 +25,6 @@ systemctl enable docker
 # Docker Compose
 curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
 chmod +x /usr/local/bin/docker-compose
-ln -sf /usr/local/bin/docker-compose /usr/bin/docker-compose
 
 # AWS CLI v2
 curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
@@ -26,88 +32,130 @@ unzip awscliv2.zip
 ./aws/install --update
 
 # SSM Agent
-yum install -y amazon-ssm-agent
 systemctl start amazon-ssm-agent
 systemctl enable amazon-ssm-agent
 
-# EBS Volume Setup - MySQL データ永続化
-EBS_DEVICE="/dev/nvme1n1"
-MYSQL_DATA_DIR="/var/lib/mysql"
-
+# EBS Volume Setup
+EBS_WAIT_COUNT=0
 while [ ! -e $EBS_DEVICE ]; do
-    echo "Waiting for EBS volume to attach..."
-    sleep 5
+    if [ $EBS_WAIT_COUNT -ge $EBS_WAIT_TIMEOUT ]; then
+        exit 1
+    fi
+    sleep 1
+    EBS_WAIT_COUNT=$((EBS_WAIT_COUNT + 1))
 done
 
-# EBSボリュームがフォーマットされていない場合のみフォーマット
 if ! blkid $EBS_DEVICE; then
-    echo "Formatting EBS volume..."
     mkfs.ext4 $EBS_DEVICE
 fi
 
-# MySQLデータディレクトリを直接EBSボリュームにマウント
 mkdir -p $MYSQL_DATA_DIR
 mount $EBS_DEVICE $MYSQL_DATA_DIR
-
-# 永続的マウント設定
 echo "$EBS_DEVICE $MYSQL_DATA_DIR ext4 defaults,nofail 0 2" >> /etc/fstab
 
-# MySQL用のディレクトリ構造とオーナー設定
-# マウント後にMySQLデータディレクトリが空かどうかチェック
-if [ ! -d "$MYSQL_DATA_DIR/mysql" ]; then
-    echo "MySQL data directory is empty - setting up for first run..."
-    # MySQLが初期化できるように適切な権限を設定
+MYSQL_CONTENT=$(ls -A "$MYSQL_DATA_DIR" 2>/dev/null | grep -v "lost+found" | wc -l)
+if [ "$MYSQL_CONTENT" -eq 0 ]; then
     chown -R 999:999 $MYSQL_DATA_DIR
     chmod 755 $MYSQL_DATA_DIR
-    
-    # MySQLの初期化を確実にするため、lost+found以外を削除
     find $MYSQL_DATA_DIR -mindepth 1 -maxdepth 1 ! -name "lost+found" -exec rm -rf {} \; 2>/dev/null || true
 else
-    echo "MySQL data directory exists - preserving existing data..."
-    # 既存データがある場合も権限を確認/修正
     chown -R 999:999 $MYSQL_DATA_DIR
     chmod 755 $MYSQL_DATA_DIR
 fi
 
-# ECR authentication
-aws ecr get-login-password --region ap-northeast-1 | docker login --username AWS --password-stdin 099355342767.dkr.ecr.ap-northeast-1.amazonaws.com
-sudo -u ec2-user mkdir -p /home/ec2-user/.docker
-sudo -u ec2-user aws ecr get-login-password --region ap-northeast-1 | sudo -u ec2-user docker login --username AWS --password-stdin 099355342767.dkr.ecr.ap-northeast-1.amazonaws.com
-
-# Create docker-compose.yml for ECR images with dynamic environment variables
+# アプリディレクトリ作成
 sudo -u ec2-user mkdir -p /home/ec2-user/app
+sudo -u ec2-user mkdir -p /home/ec2-user/.docker
 
-# Get secrets from AWS Secrets Manager
-BACKEND_SECRET_ARN="${backend_secret_arn}"
-MYSQL_SECRET_ARN="${mysql_secret_arn}"
+# デプロイスクリプト作成
+cat > /usr/local/bin/update-compose.sh << EOF
+#!/bin/bash
+set -e
 
-# Get backend secrets
-BACKEND_SECRETS=$(aws secretsmanager get-secret-value --secret-id "$BACKEND_SECRET_ARN" --region ap-northeast-1 --query SecretString --output text)
-DATABASE_URL=$(echo "$BACKEND_SECRETS" | jq -r '.DATABASE_URL')
-API_PORT=$(echo "$BACKEND_SECRETS" | jq -r '.API_PORT')
-JWT_SECRET=$(echo "$BACKEND_SECRETS" | jq -r '.JWT_SECRET')
-NODE_ENV=$(echo "$BACKEND_SECRETS" | jq -r '.NODE_ENV')
-CORS_ORIGINS=$(echo "$BACKEND_SECRETS" | jq -r '.CORS_ORIGINS')
+AWS_REGION="${aws_region}"
+AWS_ACCOUNT_ID="${aws_account_id}"
+ECR_REPOSITORY="${ecr_repository_name}"
+APP_DIR="/home/ec2-user/app"
 
-# Get MySQL secrets
-MYSQL_SECRETS=$(aws secretsmanager get-secret-value --secret-id "$MYSQL_SECRET_ARN" --region ap-northeast-1 --query SecretString --output text)
-MYSQL_ROOT_PASSWORD=$(echo "$MYSQL_SECRETS" | jq -r '.password')
-MYSQL_DATABASE=$(echo "$MYSQL_SECRETS" | jq -r '.database')
-MYSQL_USER=$(echo "$MYSQL_SECRETS" | jq -r '.username')
-MYSQL_PASSWORD=$(echo "$MYSQL_SECRETS" | jq -r '.password')
+echo "=== Auto Deploy Service Started ==="
+echo "$(date): Starting application deployment..."
 
-cat > /home/ec2-user/app/docker-compose.yml << EOF
+# 環境変数から取得（systemdサービスで設定）
+if [ -z "\$BACKEND_SECRET_ARN" ] || [ -z "\$MYSQL_SECRET_ARN" ]; then
+    echo "ERROR: BACKEND_SECRET_ARN or MYSQL_SECRET_ARN not set" >&2
+    exit 1
+fi
+
+echo "$(date): Retrieving secrets from AWS Secrets Manager..."
+BACKEND_SECRETS=\$(aws secretsmanager get-secret-value --secret-id "\$BACKEND_SECRET_ARN" --region \$AWS_REGION --query SecretString --output text) || {
+    echo "ERROR: Failed to retrieve backend secrets" >&2
+    exit 1
+}
+MYSQL_SECRETS=\$(aws secretsmanager get-secret-value --secret-id "\$MYSQL_SECRET_ARN" --region \$AWS_REGION --query SecretString --output text) || {
+    echo "ERROR: Failed to retrieve MySQL secrets" >&2
+    exit 1
+}
+
+echo "$(date): Creating environment files..."
+echo "\$BACKEND_SECRETS" | jq -r 'to_entries[] | "\(.key)=\(.value)"' > "\$APP_DIR/.env.backend"
+echo "\$MYSQL_SECRETS" | jq -r 'to_entries[] | "\(.key)=\(.value)"' > "\$APP_DIR/.env.mysql"
+chmod 600 "\$APP_DIR"/.env.*
+chown ec2-user:ec2-user "\$APP_DIR"/.env.*
+
+echo "$(date): Authenticating with ECR..."
+aws ecr get-login-password --region \$AWS_REGION | docker login --username AWS --password-stdin \$AWS_ACCOUNT_ID.dkr.ecr.\$AWS_REGION.amazonaws.com || {
+    echo "ERROR: ECR authentication failed" >&2
+    exit 1
+}
+
+echo "$(date): Stopping existing containers..."
+cd "\$APP_DIR"
+docker-compose down || true
+
+echo "$(date): Pulling latest images..."
+docker-compose pull || {
+    echo "ERROR: Failed to pull Docker images" >&2
+    exit 1
+}
+
+echo "$(date): Starting services..."
+docker-compose up -d || {
+    echo "ERROR: Failed to start services" >&2
+    exit 1
+}
+
+echo "$(date): Waiting for services to be ready..."
+sleep 30
+
+echo "$(date): Checking service status..."
+docker-compose ps
+
+echo "$(date): Deployment completed successfully ✅"
+EOF
+
+chmod +x /usr/local/bin/update-compose.sh
+chown ec2-user:ec2-user /usr/local/bin/update-compose.sh
+
+# 環境変数設定
+cat > /etc/environment << 'ENV'
+AWS_REGION=${aws_region}
+AWS_ACCOUNT_ID=${aws_account_id}
+ECR_REPOSITORY=${ecr_repository_name}
+ENV
+
+# アプリディレクトリ作成（初期セットアップのみ）
+sudo -u ec2-user mkdir -p /home/ec2-user/app
+sudo -u ec2-user mkdir -p /home/ec2-user/.docker
+
+# docker-compose.yml テンプレート作成（初期セットアップのみ）
+sudo -u ec2-user cat > /home/ec2-user/app/docker-compose.yml << EOF
 services:
   backend:
-    image: 099355342767.dkr.ecr.ap-northeast-1.amazonaws.com/studify-backend:latest
+    image: ${aws_account_id}.dkr.ecr.${aws_region}.amazonaws.com/${ecr_repository_name}:latest
     ports:
       - "3000:3000"
-    environment:
-      - DATABASE_URL=$DATABASE_URL
-      - API_PORT=$API_PORT
-      - JWT_SECRET=$JWT_SECRET
-      - NODE_ENV=$NODE_ENV
-      - CORS_ORIGINS=$CORS_ORIGINS
+    env_file:
+      - .env.backend
     depends_on:
       mysql:
         condition: service_healthy
@@ -117,18 +165,15 @@ services:
 
   mysql:
     image: mysql:8.0
-    environment:
-      MYSQL_ROOT_PASSWORD: $MYSQL_ROOT_PASSWORD
-      MYSQL_DATABASE: $MYSQL_DATABASE
-      MYSQL_USER: $MYSQL_USER
-      MYSQL_PASSWORD: $MYSQL_PASSWORD
+    env_file:
+      - .env.mysql
     volumes:
-      - /var/lib/mysql:/var/lib/mysql  # EBSボリュームを直接マウント
+      - /var/lib/mysql:/var/lib/mysql
     networks:
       - app-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$MYSQL_ROOT_PASSWORD"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -141,100 +186,34 @@ EOF
 
 chown -R ec2-user:ec2-user /home/ec2-user/app
 
-# Pull and start application
-cd /home/ec2-user/app
-echo "=== Verifying Docker Compose Installation ==="
-/usr/local/bin/docker-compose --version
-echo "=== Pulling ECR Images ==="
-sudo -u ec2-user /usr/local/bin/docker-compose pull
-echo "=== Starting Application ==="
-sudo -u ec2-user /usr/local/bin/docker-compose up -d
-echo "=== Application Status ==="
-sudo -u ec2-user /usr/local/bin/docker-compose ps
-echo "=== Waiting for application startup ==="
-sleep 10
-echo "=== Testing API Health ==="
-curl -f http://localhost:3000/health || echo "API health check failed - may need more startup time"
+# 初回のSecrets取得とサービス起動は update-compose.sh に委譲
+echo "Initial setup completed. Secrets and application startup will be handled by auto-deploy.service"
 
-# EC2起動時自動デプロイサービス設定
+# systemdサービス設定
+mkdir -p /etc/systemd/system/auto-deploy.service.d
+cat > /etc/systemd/system/auto-deploy.service.d/env.conf << EOF
+[Service]
+Environment=BACKEND_SECRET_ARN=${backend_secret_arn}
+Environment=MYSQL_SECRET_ARN=${mysql_secret_arn}
+EOF
+
+chmod 600 /etc/systemd/system/auto-deploy.service.d/env.conf
+
 cat > /etc/systemd/system/auto-deploy.service << EOF
 [Unit]
-Description=Auto Deploy Application on Boot
-After=docker.service
+Description=Deploy Application via GitHub Actions
+After=docker.service network-online.target
 Requires=docker.service
+Wants=network-online.target
 
 [Service]
 Type=oneshot
-User=root
-ExecStart=/bin/bash -c "
-aws ecr get-login-password --region ap-northeast-1 | docker login --username AWS --password-stdin 099355342767.dkr.ecr.ap-northeast-1.amazonaws.com
-cd /home/ec2-user/app
-
-# Update docker-compose.yml with latest secrets
-BACKEND_SECRET_ARN='${backend_secret_arn}'
-MYSQL_SECRET_ARN='${mysql_secret_arn}'
-
-BACKEND_SECRETS=\\\$(aws secretsmanager get-secret-value --secret-id \\\"\\\$BACKEND_SECRET_ARN\\\" --region ap-northeast-1 --query SecretString --output text)
-DATABASE_URL=\\\$(echo \\\"\\\$BACKEND_SECRETS\\\" | jq -r '.DATABASE_URL')
-API_PORT=\\\$(echo \\\"\\\$BACKEND_SECRETS\\\" | jq -r '.API_PORT')
-JWT_SECRET=\\\$(echo \\\"\\\$BACKEND_SECRETS\\\" | jq -r '.JWT_SECRET')
-NODE_ENV=\\\$(echo \\\"\\\$BACKEND_SECRETS\\\" | jq -r '.NODE_ENV')
-CORS_ORIGINS=\\\$(echo \\\"\\\$BACKEND_SECRETS\\\" | jq -r '.CORS_ORIGINS')
-
-MYSQL_SECRETS=\\\$(aws secretsmanager get-secret-value --secret-id \\\"\\\$MYSQL_SECRET_ARN\\\" --region ap-northeast-1 --query SecretString --output text)
-MYSQL_ROOT_PASSWORD=\\\$(echo \\\"\\\$MYSQL_SECRETS\\\" | jq -r '.password')
-MYSQL_DATABASE=\\\$(echo \\\"\\\$MYSQL_SECRETS\\\" | jq -r '.database')
-MYSQL_USER=\\\$(echo \\\"\\\$MYSQL_SECRETS\\\" | jq -r '.username')
-MYSQL_PASSWORD=\\\$(echo \\\"\\\$MYSQL_SECRETS\\\" | jq -r '.password')
-
-cat > /home/ec2-user/app/docker-compose.yml << COMPOSE_EOF
-services:
-  backend:
-    image: 099355342767.dkr.ecr.ap-northeast-1.amazonaws.com/studify-backend:latest
-    ports:
-      - \\\"3000:3000\\\"
-    environment:
-      - DATABASE_URL=\\\$DATABASE_URL
-      - API_PORT=\\\$API_PORT
-      - JWT_SECRET=\\\$JWT_SECRET
-      - NODE_ENV=\\\$NODE_ENV
-      - CORS_ORIGINS=\\\$CORS_ORIGINS
-    depends_on:
-      mysql:
-        condition: service_healthy
-    networks:
-      - app-network
-    restart: unless-stopped
-
-  mysql:
-    image: mysql:8.0
-    environment:
-      MYSQL_ROOT_PASSWORD: \\\$MYSQL_ROOT_PASSWORD
-      MYSQL_DATABASE: \\\$MYSQL_DATABASE
-      MYSQL_USER: \\\$MYSQL_USER
-      MYSQL_PASSWORD: \\\$MYSQL_PASSWORD
-    volumes:
-      - /var/lib/mysql:/var/lib/mysql
-    networks:
-      - app-network
-    restart: unless-stopped
-    healthcheck:
-      test: [\\\"CMD\\\", \\\"mysqladmin\\\", \\\"ping\\\", \\\"-h\\\", \\\"localhost\\\", \\\"-u\\\", \\\"root\\\", \\\"-p\\\$MYSQL_ROOT_PASSWORD\\\"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
-
-networks:
-  app-network:
-    driver: bridge
-COMPOSE_EOF
-
-chown -R ec2-user:ec2-user /home/ec2-user/app
-/usr/local/bin/docker-compose pull
-/usr/local/bin/docker-compose up -d
-"
-RemainAfterExit=yes
+User=ec2-user
+Group=ec2-user
+WorkingDirectory=/home/ec2-user/app
+Environment=HOME=/home/ec2-user
+ExecStart=/usr/local/bin/update-compose.sh
+RemainAfterExit=no
 
 [Install]
 WantedBy=multi-user.target
@@ -242,17 +221,6 @@ EOF
 
 systemctl enable auto-deploy.service
 
-# ECRイメージが存在する場合、アプリケーションを起動
-echo "=== Checking for ECR Images ==="
-aws ecr describe-images --repository-name studify-backend --region ap-northeast-1 > /dev/null 2>&1
-if [ $? -eq 0 ]; then
-    echo "=== ECR Images Found - Starting Application ==="
-    cd /home/ec2-user/app
-    sudo -u ec2-user /usr/local/bin/docker-compose pull && \
-    sudo -u ec2-user /usr/local/bin/docker-compose up -d
-    echo "=== Application Started ==="
-else
-    echo "=== No ECR Images Found - Application will start when images are pushed ==="
-fi
-
-echo "=== EC2 Setup Completed ==="
+# 初回のアプリケーションセットアップを実行
+echo "Running initial application setup via auto-deploy.service..."
+systemctl start auto-deploy.service
