@@ -1,10 +1,9 @@
 # Studify Infrastructure Management Makefile
 
 # Variables
+LOCAL_TERRAFORM_DIR := terraform/envs/local
 DEV_TERRAFORM_DIR := terraform/envs/dev
-# 将来の環境追加時:
-# PROD_TERRAFORM_DIR := terraform/envs/prod
-# LOCAL_TERRAFORM_DIR := terraform/envs/local
+PROD_TERRAFORM_DIR := terraform/envs/prod
 
 # Default target
 .PHONY: help
@@ -37,7 +36,6 @@ dev-deploy:
 	@echo "=== 開発環境インフラ展開開始 ==="
 	cd $(DEV_TERRAFORM_DIR) && \
 	terraform apply -auto-approve
-	@$(MAKE) dev-status
 
 # 開発環境システム状態確認
 .PHONY: dev-status
