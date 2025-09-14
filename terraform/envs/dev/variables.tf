@@ -133,3 +133,8 @@ variable "ebs_throughput" {
   type        = number
   default     = 125
 }
+
+variable "domain_name" {
+  description = "Root domain name for SES verification"
+  type        = string
+}

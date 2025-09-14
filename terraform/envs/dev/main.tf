@@ -122,6 +122,16 @@ module "route53" {
   record_ttl                    = var.record_ttl
 }
 
+# SES Module
+module "ses" {
+  source = "../../modules/ses"
+
+  project         = var.project
+  env             = var.env
+  domain_name     = var.domain_name
+  route53_zone_id = var.route53_zone_id
+}
+
 # ECR module
 module "ecr" {
   source = "../../modules/ecr"

@@ -130,6 +130,38 @@ resource "aws_iam_role_policy_attachment" "secrets_manager_read" {
   policy_arn = aws_iam_policy.secrets_manager_read.arn
 }
 
+# SES sending policy
+resource "aws_iam_policy" "ses_send_email" {
+  name        = "${var.project}-${var.env}-ses-send-email"
+  description = "Policy for sending emails through SES"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "ses:SendEmail",
+          "ses:SendRawEmail"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+
+  tags = {
+    Name        = "${var.project}-${var.env}-ses-send-email"
+    Project     = var.project
+    Environment = var.env
+  }
+}
+
+# Attach SES policy
+resource "aws_iam_role_policy_attachment" "ses_send_email" {
+  role       = aws_iam_role.ec2_role.name
+  policy_arn = aws_iam_policy.ses_send_email.arn
+}
+
 # IAM Instance Profile
 resource "aws_iam_instance_profile" "ec2_profile" {
   name = "${var.project}-${var.env}-ec2-profile"
