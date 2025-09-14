@@ -73,10 +73,18 @@ resource "aws_cloudfront_distribution" "frontend" {
     max_ttl                = 86400
   }
 
-  # Custom error response for SPA
+  # Custom error response for SPA - 404 errors
   custom_error_response {
     error_caching_min_ttl = 0
     error_code            = 404
+    response_code         = 200
+    response_page_path    = "/index.html"
+  }
+
+  # Custom error response for SPA - 403 errors (Access Denied)
+  custom_error_response {
+    error_caching_min_ttl = 0
+    error_code            = 403
     response_code         = 200
     response_page_path    = "/index.html"
   }
