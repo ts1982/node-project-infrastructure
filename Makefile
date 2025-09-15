@@ -31,8 +31,8 @@ dev-init:
 	@echo "=== セットアップ完了 - 'make dev-deploy'でインフラを展開してください ==="
 
 # 開発環境インフラ展開
-.PHONY: dev-deploy
-dev-deploy:
+.PHONY: dev-apply
+dev-apply:
 	@echo "=== 開発環境インフラ展開開始 ==="
 	cd $(DEV_TERRAFORM_DIR) && \
 	terraform apply -auto-approve
