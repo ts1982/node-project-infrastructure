@@ -1,3 +1,6 @@
+# Data sources
+data "aws_caller_identity" "current" {}
+
 # GitHub OIDC Provider
 resource "aws_iam_openid_connect_provider" "github_actions" {
   url = "https://token.actions.githubusercontent.com"
@@ -111,6 +114,29 @@ resource "aws_iam_policy" "github_actions_backend" {
           "ec2:DescribeInstances"
         ]
         Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "ecs:DescribeTaskDefinition",
+          "ecs:RegisterTaskDefinition",
+          "ecs:UpdateService",
+          "ecs:DescribeServices",
+          "ecs:DescribeClusters",
+          "ecs:ListTasks",
+          "ecs:DescribeTasks",
+          "ecs:ListContainerInstances"
+        ]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "iam:PassRole"
+        ]
+        Resource = [
+          "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project}-${var.env}-ecs-*"
+        ]
       },
       {
         Effect = "Allow"

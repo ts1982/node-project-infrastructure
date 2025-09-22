@@ -104,6 +104,8 @@ resource "aws_ebs_volume" "db_data" {
 
 # Attach EBS Volume to EC2 when instance is provided
 resource "aws_volume_attachment" "db_data" {
+  count = var.instance_id != null ? 1 : 0
+
   device_name = var.device_name
   volume_id   = aws_ebs_volume.db_data.id
   instance_id = var.instance_id
