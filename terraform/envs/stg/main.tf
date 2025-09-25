@@ -57,8 +57,10 @@ module "secrets" {
 module "ecr" {
   source = "../../modules/ecr"
 
-  project = var.project
-  env     = var.env
+  project      = var.project
+  env          = var.env
+  cluster_name = "${var.project}-${var.env}"
+  service_name = "${var.project}-${var.env}-app"
 }
 
 module "ebs" {
@@ -93,6 +95,8 @@ module "ecs" {
   backend_memory = 512
 
   ecr_repository_url = module.ecr.repository_url
+
+  ecr_initial_image_dependency = module.ecr.initial_image_created
 
   mysql_root_password = var.mysql_secrets.password
   mysql_database      = var.mysql_secrets.database

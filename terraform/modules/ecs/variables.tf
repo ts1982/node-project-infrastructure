@@ -116,3 +116,10 @@ variable "backend_environment_variables" {
   }))
   default = []
 }
+
+# ECR Dependencies
+variable "ecr_initial_image_dependency" {
+  description = "Dependency to ensure ECR initial image is created before ECS task definition"
+  type        = string
+  default     = ""
+}

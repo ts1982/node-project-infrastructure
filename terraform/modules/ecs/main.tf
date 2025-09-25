@@ -169,8 +169,8 @@ resource "aws_ecs_task_definition" "app" {
   network_mode             = "bridge"
   requires_compatibilities = ["EC2"]
 
-  # Total memory allocation (leave some for ECS agent)
-  memory = var.task_memory
+  memory     = var.task_memory
+  depends_on = [var.ecr_initial_image_dependency]
 
   container_definitions = jsonencode([
     {
@@ -195,6 +195,10 @@ resource "aws_ecs_task_definition" "app" {
         {
           name  = "MYSQL_PASSWORD"
           value = var.mysql_password
+        },
+        {
+          name  = "MYSQL_ROOT_HOST"
+          value = "%"
         }
       ]
 
@@ -217,12 +221,12 @@ resource "aws_ecs_task_definition" "app" {
       healthCheck = {
         command = [
           "CMD-SHELL",
-          "mysqladmin ping -h localhost -u root -p$MYSQL_ROOT_PASSWORD"
+          "mysqladmin ping -h localhost -u root -p$MYSQL_ROOT_PASSWORD --silent"
         ]
-        interval    = 30
-        timeout     = 5
-        retries     = 3
-        startPeriod = 60
+        interval    = 15
+        timeout     = 10
+        retries     = 5
+        startPeriod = 120
       }
 
       logConfiguration = {
@@ -258,6 +262,8 @@ resource "aws_ecs_task_definition" "app" {
         }
       ]
 
+      links = ["mysql:mysql"]
+
       portMappings = [
         {
           containerPort = 3000
@@ -272,9 +278,9 @@ resource "aws_ecs_task_definition" "app" {
           "curl -f http://localhost:3000/health || exit 1"
         ]
         interval    = 30
-        timeout     = 5
-        retries     = 3
-        startPeriod = 60
+        timeout     = 10
+        retries     = 5
+        startPeriod = 180
       }
 
       logConfiguration = {
@@ -305,8 +311,12 @@ resource "aws_ecs_service" "app" {
   task_definition = aws_ecs_task_definition.app.arn
   desired_count   = 1
 
-  # Force new deployment on every update
   force_new_deployment = true
+  depends_on           = [var.ecr_initial_image_dependency]
+
+  # Deployment configuration for resource-constrained environment
+  deployment_maximum_percent         = 100 # Don't allow more than 1 task at a time
+  deployment_minimum_healthy_percent = 0   # Allow temporary service downtime during deployment
 
   # Placement constraints to ensure single instance
   placement_constraints {
