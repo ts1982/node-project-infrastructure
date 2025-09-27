@@ -96,8 +96,21 @@ stg-init:
 	@echo "Initializing staging environment..."
 	cd $(STG_TERRAFORM_DIR) && terraform init && terraform plan
 
+# Build Lambda deployment package
+.PHONY: stg-build-lambda
+stg-build-lambda:
+	@echo "Building Lambda deployment package..."
+	cd $(STG_TERRAFORM_DIR) && \
+	if [ ! -f lambda_function.zip ]; then \
+		echo "Creating lambda_function.zip from lambda/update_route53.py"; \
+		zip lambda_function.zip lambda/update_route53.py; \
+		echo "Lambda package created successfully"; \
+	else \
+		echo "lambda_function.zip already exists"; \
+	fi
+
 .PHONY: stg-apply
-stg-apply:
+stg-apply: stg-build-lambda
 	@echo "Deploying staging infrastructure..."
 	cd $(STG_TERRAFORM_DIR) && terraform apply -auto-approve
 

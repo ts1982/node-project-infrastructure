@@ -275,12 +275,12 @@ resource "aws_ecs_task_definition" "app" {
       healthCheck = {
         command = [
           "CMD-SHELL",
-          "curl -f http://localhost:3000/health || exit 1"
+          "nc -z localhost 3000 || exit 1"
         ]
         interval    = 30
         timeout     = 10
-        retries     = 5
-        startPeriod = 180
+        retries     = 3
+        startPeriod = 60
       }
 
       logConfiguration = {
@@ -341,6 +341,9 @@ resource "aws_cloudwatch_log_group" "app" {
     Environment = var.env
   }
 }
+
+# Note: EC2 instance information is obtained dynamically via outputs
+# We'll use a separate terraform apply after the ECS infrastructure is ready
 
 # Security Group for ECS Tasks
 resource "aws_security_group" "ecs_tasks" {

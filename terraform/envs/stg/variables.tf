@@ -102,6 +102,12 @@ variable "record_ttl" {
   default     = 300
 }
 
+variable "acm_arn_us_east_1" {
+  description = "ACM certificate ARN in us-east-1 for CloudFront"
+  type        = string
+  default     = null
+}
+
 # GitHub OIDC
 variable "github_repository" {
   description = "GitHub repository in format owner/repo"

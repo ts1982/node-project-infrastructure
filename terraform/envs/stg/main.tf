@@ -141,16 +141,96 @@ module "ecs" {
   allowed_http_cidrs = var.allowed_http_cidrs
 }
 
-# Route53 configuration for API domain (disabled for Auto Scaling Group - requires ALB)
-# resource "aws_route53_record" "api" {
-#   count = var.api_domain != null ? 1 : 0
-# 
-#   zone_id = var.route53_zone_id
-#   name    = var.api_domain
-#   type    = "A"
-#   ttl     = var.record_ttl
-#   records = [module.ecs_ec2.instance_public_ip]
-# }
+# CloudFront API Module with Route53-based dynamic origin
+module "cloudfront_api" {
+  count  = var.api_domain != null && var.acm_arn_us_east_1 != null ? 1 : 0
+  source = "../../modules/cloudfront_api"
+
+  project    = var.project
+  env        = var.env
+  api_domain = var.api_domain
+  # Route53レコードをオリジンとして使用 - Lambda関数がレコードを動的更新
+  ec2_public_ip       = length(data.aws_instances.ecs) > 0 && length(data.aws_instances.ecs[0].public_ips) > 0 ? data.aws_instances.ecs[0].public_ips[0] : "198.51.100.1"
+  ec2_public_dns      = "backend-${var.env}.studify.click" # Route53レコード
+  acm_certificate_arn = var.acm_arn_us_east_1
+
+  depends_on = [module.ecs, aws_route53_record.ecs_backend]
+}
+
+# Route53 Records for API domain
+resource "aws_route53_record" "api" {
+  count   = var.api_domain != null && var.route53_zone_id != null && length(module.cloudfront_api) > 0 ? 1 : 0
+  zone_id = var.route53_zone_id
+  name    = var.api_domain
+  type    = "A"
+
+  alias {
+    name                   = module.cloudfront_api[0].cloudfront_domain_name
+    zone_id                = module.cloudfront_api[0].cloudfront_hosted_zone_id
+    evaluate_target_health = false
+  }
+}
+
+# Data sources for dynamic instance discovery
+data "aws_ecs_cluster" "main" {
+  count        = var.api_domain != null && var.route53_zone_id != null ? 1 : 0
+  cluster_name = module.ecs.cluster_name
+
+  depends_on = [module.ecs]
+}
+
+data "aws_autoscaling_group" "ecs" {
+  count = var.api_domain != null && var.route53_zone_id != null ? 1 : 0
+  name  = module.ecs.autoscaling_group_name
+
+  depends_on = [module.ecs]
+}
+
+# Get ECS instances by Auto Scaling Group tag
+data "aws_instances" "ecs" {
+  count = var.api_domain != null && var.route53_zone_id != null ? 1 : 0
+
+  filter {
+    name   = "tag:aws:autoscaling:groupName"
+    values = [module.ecs.autoscaling_group_name]
+  }
+
+  filter {
+    name   = "instance-state-name"
+    values = ["running"]
+  }
+
+  depends_on = [module.ecs]
+}
+
+# Internal Route53 record for ECS backend - dynamically updated by Lambda
+resource "aws_route53_record" "ecs_backend" {
+  count   = var.api_domain != null && var.route53_zone_id != null ? 1 : 0
+  zone_id = var.route53_zone_id
+  name    = "backend-${var.env}.studify.click"
+  type    = "A"
+  ttl     = 60
+
+  # Initial value from discovered ECS instances  
+  records = length(data.aws_instances.ecs) > 0 && length(data.aws_instances.ecs[0].public_ips) > 0 ? [data.aws_instances.ecs[0].public_ips[0]] : ["198.51.100.1"]
+
+  lifecycle {
+    ignore_changes = [records] # Ignore Lambda function updates
+  }
+}
+
+resource "aws_route53_record" "api_ipv6" {
+  count   = var.api_domain != null && var.route53_zone_id != null && length(module.cloudfront_api) > 0 ? 1 : 0
+  zone_id = var.route53_zone_id
+  name    = var.api_domain
+  type    = "AAAA"
+
+  alias {
+    name                   = module.cloudfront_api[0].cloudfront_domain_name
+    zone_id                = module.cloudfront_api[0].cloudfront_hosted_zone_id
+    evaluate_target_health = false
+  }
+}
 
 module "github_oidc" {
   source = "../../modules/github_oidc"
@@ -162,5 +242,5 @@ module "github_oidc" {
   backend_secret_arn          = module.secrets.backend_secret_arn
   mysql_secret_arn            = module.secrets.mysql_secret_arn
   s3_bucket_arn               = "arn:aws:s3:::dummy-bucket"
-  cloudfront_distribution_arn = "arn:aws:cloudfront::distribution/dummy"
+  cloudfront_distribution_arn = length(module.cloudfront_api) > 0 ? module.cloudfront_api[0].cloudfront_arn : "arn:aws:cloudfront::distribution/dummy"
 }

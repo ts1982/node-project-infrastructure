@@ -68,3 +68,17 @@ output "log_group_arn" {
   description = "ARN of the CloudWatch log group"
   value       = aws_cloudwatch_log_group.app.arn
 }
+
+# Auto Scaling Group
+output "autoscaling_group_name" {
+  description = "Name of the Auto Scaling Group"
+  value       = aws_autoscaling_group.ecs.name
+}
+
+output "autoscaling_group_arn" {
+  description = "ARN of the Auto Scaling Group"
+  value       = aws_autoscaling_group.ecs.arn
+}
+
+# Note: EC2 instance information will be obtained via data sources
+# This is to avoid circular dependencies in Terraform

@@ -46,6 +46,25 @@ make dev-init
 make dev-deploy
 ```
 
+#### ⚠️ ステージング環境の初回セットアップ時の注意
+ステージング環境では、Lambda関数のデプロイパッケージが必要です:
+
+```bash
+# ステージング環境の初回セットアップ
+cd terraform/envs/stg
+
+# Lambda zipパッケージ生成（初回のみ必要）
+zip lambda_function.zip lambda/update_route53.py
+
+# または、Makefileを使用（推奨）
+make stg-build-lambda
+
+# ステージング環境展開
+make stg-apply
+```
+
+**補足**: `lambda_function.zip` はビルド生成物のため、Gitでは管理していません。
+
 ### 3. 状態確認
 ```bash
 make dev-status

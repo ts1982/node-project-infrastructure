@@ -68,7 +68,7 @@ resource "null_resource" "initial_image" {
 FROM alpine:3.18
 RUN apk add --no-cache netcat-openbsd
 EXPOSE 3000
-CMD while true; do echo -e "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"status\":\"ok\",\"message\":\"Placeholder backend\",\"environment\":\"staging\"}" | nc -l -p 3000 -q 1; done
+CMD while true; do echo -e "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"status\":\"ok\",\"message\":\"Placeholder backend\"}" | nc -l -p 3000 -q 1; done
 EOF
         
         aws ecr get-login-password --region ${data.aws_region.current.name} | docker login --username AWS --password-stdin ${aws_ecr_repository.backend.repository_url}
