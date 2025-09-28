@@ -160,8 +160,8 @@ module "github_oidc" {
 
   project                     = var.project
   env                         = var.env
-  github_repository           = var.github_repository
-  github_branch               = var.github_branch
+  github_repositories         = var.github_repositories
+  github_branches             = var.github_branches
   backend_secret_arn          = module.secrets.backend_secret_arn
   mysql_secret_arn            = module.secrets.mysql_secret_arn
   s3_bucket_arn               = module.s3_cloudfront.s3_bucket_arn

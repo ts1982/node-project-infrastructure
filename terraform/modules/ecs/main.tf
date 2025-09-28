@@ -327,9 +327,80 @@ resource "aws_ecs_service" "app" {
   enable_ecs_managed_tags = true
   propagate_tags          = "SERVICE"
 
+  # Wait for ECS tasks to be stopped during destroy
+  wait_for_steady_state = false
+
+  # Lifecycle rule to ensure proper destroy order
+  lifecycle {
+    create_before_destroy = false
+    # Ignore changes to desired_count to allow external scaling
+    ignore_changes = []
+  }
+
   tags = {
     Environment = var.env
   }
+}
+
+# Null resource to ensure proper destroy order
+# Force ECS service to scale to 0 during destroy to ensure clean shutdown
+resource "null_resource" "ecs_service_scaler" {
+  triggers = {
+    cluster_name = aws_ecs_cluster.main.name
+    service_name = aws_ecs_service.app.name
+    region       = var.region
+  }
+
+  provisioner "local-exec" {
+    when    = destroy
+    command = <<-EOF
+      set -e
+      echo "Scaling down ECS service to 0 before destroy..."
+      aws ecs update-service \
+        --cluster ${self.triggers.cluster_name} \
+        --service ${self.triggers.service_name} \
+        --desired-count 0 \
+        --region ${self.triggers.region} \
+        --no-cli-pager
+      
+      echo "Waiting for ECS tasks to stop..."
+      aws ecs wait services-stable \
+        --cluster ${self.triggers.cluster_name} \
+        --services ${self.triggers.service_name} \
+        --region ${self.triggers.region}
+      
+      echo "ECS service scaled down successfully"
+    EOF
+  }
+}
+
+# Force Auto Scaling Group to scale to 0 during destroy
+resource "null_resource" "asg_scaler" {
+  triggers = {
+    asg_name = aws_autoscaling_group.ecs.name
+    region   = var.region
+  }
+
+  provisioner "local-exec" {
+    when    = destroy
+    command = <<-EOF
+      set -e
+      echo "Scaling down Auto Scaling Group to 0 before destroy..."
+      aws autoscaling update-auto-scaling-group \
+        --auto-scaling-group-name ${self.triggers.asg_name} \
+        --desired-capacity 0 \
+        --min-size 0 \
+        --region ${self.triggers.region} \
+        --no-cli-pager
+      
+      echo "Waiting for EC2 instances to terminate..."
+      sleep 90
+      
+      echo "Auto Scaling Group scaled down successfully"
+    EOF
+  }
+
+  depends_on = [null_resource.ecs_service_scaler]
 }
 
 # CloudWatch Log Group

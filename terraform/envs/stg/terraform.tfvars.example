@@ -1,0 +1,52 @@
+# Staging Environment Configuration - ECS on EC2
+# This is an example file. Copy to terraform.tfvars and fill in actual values.
+
+project = "studify"
+env     = "stg"
+region  = "ap-northeast-1"
+
+# VPC Configuration
+vpc_cidr           = "10.1.0.0/16"
+public_subnet_cidr = "10.1.1.0/24"
+availability_zone  = "ap-northeast-1a"
+
+# EC2 Configuration (ECS-optimized)
+instance_type      = "t3.small"
+key_pair_name      = null
+allowed_http_cidrs = ["0.0.0.0/0"]
+root_volume_size   = 30
+
+# EBS Configuration (Database Storage)
+ebs_volume_size = 1
+ebs_iops        = 3000
+ebs_throughput  = 125
+
+# Domain Configuration
+route53_zone_id   = "Z074877435P6YXOHVSYWI"
+api_domain        = "api-stg.studify.click"
+acm_arn_us_east_1 = "arn:aws:acm:us-east-1:099355342767:certificate/364dc9b7-3554-42d7-8251-cef878e114be"
+record_ttl        = 300
+
+# GitHub OIDC Configuration
+github_repositories = [
+  "ts1982/node-project",
+  "ts1982/node-project-infrastructure"
+]
+github_branches = ["staging", "main"]
+
+# Backend Secrets Configuration
+backend_secrets = {
+  JWT_SECRET   = "your-jwt-secret-here"
+  API_PORT     = "3000"
+  NODE_ENV     = "staging"
+  CORS_ORIGINS = "https://api-stg.studify.click,http://localhost:3000"
+}
+
+# MySQL Secrets Configuration
+mysql_secrets = {
+  username = "studify_stg_user"
+  password = "your-mysql-password-here"
+  database = "studify_stg_db"
+  host     = "mysql"
+  port     = "3306"
+}

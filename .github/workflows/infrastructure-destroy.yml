@@ -1,0 +1,285 @@
+name: 🗑️ Infrastructure Destroy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment to destroy"
+        required: true
+        type: choice
+        options:
+          - "stg"
+        default: "stg"
+
+      confirm_destroy:
+        description: 'Type "DESTROY" to confirm (case sensitive)'
+        required: true
+        type: string
+
+      force_destroy:
+        description: "Force destroy (skip interactive prompts)"
+        required: false
+        type: boolean
+        default: false
+
+env:
+  AWS_REGION: ap-northeast-1
+  TF_VERSION: 1.5.0
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  # Pre-validation job
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      can_proceed: ${{ steps.validation.outputs.can_proceed }}
+      role_arn: ${{ steps.validation.outputs.role_arn }}
+      tf_dir: ${{ steps.validation.outputs.tf_dir }}
+
+    steps:
+      - name: Validate inputs
+        id: validation
+        run: |
+          if [ "${{ github.event.inputs.confirm_destroy }}" != "DESTROY" ]; then
+            echo "❌ Confirmation failed. Must type 'DESTROY' exactly."
+            exit 1
+          fi
+
+          if [ "${{ github.event.inputs.environment }}" = "stg" ]; then
+            echo "role_arn=arn:aws:iam::099355342767:role/studify-stg-github-actions-backend" >> $GITHUB_OUTPUT
+            echo "tf_dir=terraform/envs/stg" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Invalid environment: ${{ github.event.inputs.environment }}"
+            exit 1
+          fi
+
+          echo "can_proceed=true" >> $GITHUB_OUTPUT
+          echo "✅ Validation passed"
+
+  # Plan destroy job
+  plan-destroy:
+    runs-on: ubuntu-latest
+    needs: validate
+    if: needs.validate.outputs.can_proceed == 'true'
+    environment: ${{ github.event.inputs.environment }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ needs.validate.outputs.role_arn }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform Init
+        working-directory: ${{ needs.validate.outputs.tf_dir }}
+        run: terraform init
+
+      - name: Create terraform.tfvars for destroy
+        working-directory: ${{ needs.validate.outputs.tf_dir }}
+        run: |
+          echo "Creating terraform.tfvars from example..."
+          if [ -f terraform.tfvars.example ]; then
+            cp terraform.tfvars.example terraform.tfvars
+            echo "✅ terraform.tfvars created from example"
+          else
+            echo "❌ terraform.tfvars.example not found!"
+            echo "Available files:"
+            ls -la
+            exit 1
+          fi
+
+      - name: Build Lambda package (if staging)
+        if: github.event.inputs.environment == 'stg'
+        working-directory: ${{ needs.validate.outputs.tf_dir }}
+        run: |
+          if [ ! -f lambda_function.zip ]; then
+            echo "Creating lambda_function.zip for destroy plan..."
+            zip lambda_function.zip lambda/update_route53.py
+          fi
+
+      - name: Terraform Plan Destroy
+        id: plan
+        working-directory: ${{ needs.validate.outputs.tf_dir }}
+        run: |
+          echo "## 🗑️ Terraform Destroy Plan for ${{ github.event.inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          terraform plan -destroy -out=destroy.tfplan -no-color | tee plan_output.txt
+
+          # Count resources to be destroyed
+          DESTROY_COUNT=$(grep -c "# .* will be destroyed" plan_output.txt || echo "0")
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📊 Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment**: ${{ github.event.inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Resources to destroy**: $DESTROY_COUNT" >> $GITHUB_STEP_SUMMARY
+          echo "- **Triggered by**: @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "$DESTROY_COUNT" -eq 0 ]; then
+            echo "⚠️ No resources to destroy. Environment may already be clean." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ⚠️ Resources to be destroyed:" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            grep "# .* will be destroyed" plan_output.txt | head -20 >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "destroy_count=$DESTROY_COUNT" >> $GITHUB_OUTPUT
+
+      - name: Upload destroy plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: destroy-plan-${{ github.event.inputs.environment }}
+          path: |
+            ${{ needs.validate.outputs.tf_dir }}/destroy.tfplan
+            ${{ needs.validate.outputs.tf_dir }}/plan_output.txt
+            ${{ needs.validate.outputs.tf_dir }}/lambda_function.zip
+          retention-days: 1
+
+  # Destroy job
+  destroy:
+    runs-on: ubuntu-latest
+    needs: [validate, plan-destroy]
+    if: needs.validate.outputs.can_proceed == 'true'
+    environment: ${{ github.event.inputs.environment }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ needs.validate.outputs.role_arn }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Download destroy plan
+        uses: actions/download-artifact@v4
+        with:
+          name: destroy-plan-${{ github.event.inputs.environment }}
+          path: ${{ needs.validate.outputs.tf_dir }}
+
+      - name: Terraform Init
+        working-directory: ${{ needs.validate.outputs.tf_dir }}
+        run: terraform init
+
+      - name: Create terraform.tfvars for destroy
+        working-directory: ${{ needs.validate.outputs.tf_dir }}
+        run: |
+          echo "Creating terraform.tfvars from example..."
+          if [ -f terraform.tfvars.example ]; then
+            cp terraform.tfvars.example terraform.tfvars
+            echo "✅ terraform.tfvars created from example"
+          else
+            echo "❌ terraform.tfvars.example not found!"
+            echo "Available files:"
+            ls -la
+            exit 1
+          fi
+
+      - name: Build Lambda package (if staging)
+        if: github.event.inputs.environment == 'stg'
+        working-directory: ${{ needs.validate.outputs.tf_dir }}
+        run: |
+          if [ ! -f lambda_function.zip ]; then
+            echo "Creating lambda_function.zip for destroy..."
+            zip lambda_function.zip lambda/update_route53.py
+          fi
+
+      - name: Final Confirmation
+        run: |
+          echo "## ⚠️ FINAL CONFIRMATION" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "About to destroy **${{ github.event.inputs.environment }}** environment!" >> $GITHUB_STEP_SUMMARY
+          echo "- **Triggered by**: @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Timestamp**: $(date -u)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Force mode**: ${{ github.event.inputs.force_destroy }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Pre-destroy Scaling
+        working-directory: ${{ needs.validate.outputs.tf_dir }}
+        run: |
+          echo "🔄 Pre-scaling ECS service and ASG to 0..."
+
+          # Scale down ECS service manually first
+          aws ecs update-service \
+            --cluster studify-${{ github.event.inputs.environment }} \
+            --service studify-${{ github.event.inputs.environment }}-app \
+            --desired-count 0 \
+            --region ${{ env.AWS_REGION }} || echo "ECS service scaling failed or service doesn't exist"
+
+          # Scale down Auto Scaling Group manually
+          aws autoscaling update-auto-scaling-group \
+            --auto-scaling-group-name studify-${{ github.event.inputs.environment }}-ecs-asg \
+            --desired-capacity 0 \
+            --min-size 0 \
+            --region ${{ env.AWS_REGION }} || echo "ASG scaling failed or ASG doesn't exist"
+
+          # Wait for services to stabilize
+          echo "⏳ Waiting for resources to scale down..."
+          sleep 120
+
+          echo "✅ Pre-scaling completed"
+
+      - name: Terraform Destroy
+        working-directory: ${{ needs.validate.outputs.tf_dir }}
+        run: |
+          echo "🗑️ Starting infrastructure destruction..."
+
+          # Apply the destroy plan with timeout
+          timeout 1800 terraform apply destroy.tfplan || {
+            echo "❌ Terraform destroy timed out or failed"
+            echo "## ⚠️ Destroy Issues Detected" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "The destroy operation encountered issues. Resources may still exist in AWS." >> $GITHUB_STEP_SUMMARY
+            echo "Please check the AWS Console manually." >> $GITHUB_STEP_SUMMARY
+            exit 1
+          }
+
+          echo "## ✅ Destroy Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Environment **${{ github.event.inputs.environment }}** has been destroyed." >> $GITHUB_STEP_SUMMARY
+          echo "- **Completed at**: $(date -u)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Triggered by**: @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Cleanup Lambda zip (if staging)
+        if: github.event.inputs.environment == 'stg' && always()
+        working-directory: ${{ needs.validate.outputs.tf_dir }}
+        run: |
+          rm -f lambda_function.zip
+          echo "🧹 Cleaned up lambda_function.zip"
+
+  # Notification job (optional)
+  notify:
+    runs-on: ubuntu-latest
+    needs: [validate, destroy]
+    if: always() && needs.validate.outputs.can_proceed == 'true'
+
+    steps:
+      - name: Notify completion
+        run: |
+          if [ "${{ needs.destroy.result }}" = "success" ]; then
+            echo "✅ Infrastructure destroy completed successfully"
+            echo "Environment: ${{ github.event.inputs.environment }}"
+            echo "Triggered by: @${{ github.actor }}"
+          else
+            echo "❌ Infrastructure destroy failed"
+            echo "Environment: ${{ github.event.inputs.environment }}"
+            echo "Check the logs for details"
+          fi

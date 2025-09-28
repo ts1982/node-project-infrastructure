@@ -9,15 +9,15 @@ variable "env" {
   type        = string
 }
 
-variable "github_repository" {
-  description = "GitHub repository in the format owner/repo"
-  type        = string
+variable "github_repositories" {
+  description = "List of GitHub repositories that can assume this role"
+  type        = list(string)
 }
 
-variable "github_branch" {
-  description = "GitHub branch for OIDC trust (default: main)"
-  type        = string
-  default     = "main"
+variable "github_branches" {
+  description = "List of GitHub branches that can assume this role"
+  type        = list(string)
+  default     = ["main"]
 }
 
 variable "backend_secret_arn" {

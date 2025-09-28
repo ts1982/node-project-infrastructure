@@ -21,7 +21,21 @@ resource "aws_iam_openid_connect_provider" "github_actions" {
   }
 }
 
+# Local variables for multi-repo support
+locals {
+  # Create all combinations of repo:branch:ref and repo:environment patterns
+  repo_branch_refs = flatten([
+    for repo in var.github_repositories : [
+      for branch in var.github_branches : [
+        "repo:${repo}:ref:refs/heads/${branch}",
+        "repo:${repo}:environment:${var.env}"
+      ]
+    ]
+  ])
+}
+
 # IAM Role for GitHub Actions (Backend)
+
 resource "aws_iam_role" "github_actions_backend" {
   name = "${var.project}-${var.env}-github-actions-backend"
 
@@ -39,10 +53,7 @@ resource "aws_iam_role" "github_actions_backend" {
             "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
           }
           StringLike = {
-            "token.actions.githubusercontent.com:sub" = [
-              "repo:${var.github_repository}:ref:refs/heads/${var.github_branch}",
-              "repo:${var.github_repository}:environment:${var.env}"
-            ]
+            "token.actions.githubusercontent.com:sub" = local.repo_branch_refs
           }
         }
       }
@@ -84,7 +95,8 @@ resource "aws_iam_policy" "github_actions_backend" {
         Effect = "Allow"
         Action = [
           "secretsmanager:GetSecretValue",
-          "secretsmanager:DescribeSecret"
+          "secretsmanager:DescribeSecret",
+          "secretsmanager:DeleteSecret"
         ]
         Resource = [
           var.backend_secret_arn,
@@ -141,13 +153,81 @@ resource "aws_iam_policy" "github_actions_backend" {
       {
         Effect = "Allow"
         Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:DeleteObject",
+          "s3:ListBucket"
+        ]
+        Resource = [
+          "arn:aws:s3:::studify-terraform-state-ap-northeast-1",
+          "arn:aws:s3:::studify-terraform-state-ap-northeast-1/*"
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:GetItem",
+          "dynamodb:PutItem",
+          "dynamodb:DeleteItem"
+        ]
+        Resource = "arn:aws:dynamodb:ap-northeast-1:099355342767:table/studify-terraform-locks"
+      },
+      {
+        Effect = "Allow"
+        Action = [
           "cloudfront:CreateInvalidation",
           "cloudfront:ListDistributions",
           "cloudfront:GetDistribution",
           "cloudfront:GetDistributionConfig",
-          "cloudfront:UpdateDistribution"
+          "cloudfront:UpdateDistribution",
+          "cloudfront:ListTagsForResource",
+          "cloudfront:DeleteDistribution"
         ]
         Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "iam:GetRole",
+          "iam:ListRoles",
+          "iam:PassRole",
+          "iam:ListRolePolicies",
+          "iam:GetPolicy",
+          "iam:GetOpenIDConnectProvider",
+          "iam:ListPolicies",
+          "iam:GetRolePolicy",
+          "iam:ListAttachedRolePolicies",
+          "iam:GetPolicyVersion",
+          "iam:GetInstanceProfile",
+          "iam:DeleteRolePolicy",
+          "iam:DetachRolePolicy",
+          "iam:DeleteRole",
+          "iam:DeletePolicy",
+          "iam:DeleteInstanceProfile",
+          "iam:RemoveRoleFromInstanceProfile",
+          "ecs:*",
+          "ec2:*",
+          "autoscaling:*",
+          "logs:*",
+          "route53:*",
+          "lambda:*",
+          "events:*",
+          "ecr:ListTagsForResource",
+          "ecr:GetLifecyclePolicy",
+          "ecr:DeleteLifecyclePolicy",
+          "ecr:DeleteRepository"
+        ]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:GetResourcePolicy"
+        ]
+        Resource = [
+          var.backend_secret_arn,
+          var.mysql_secret_arn
+        ]
       }
     ]
   })
@@ -183,10 +263,7 @@ resource "aws_iam_role" "github_actions_frontend" {
             "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
           }
           StringLike = {
-            "token.actions.githubusercontent.com:sub" = [
-              "repo:${var.github_repository}:ref:refs/heads/${var.github_branch}",
-              "repo:${var.github_repository}:environment:${var.env}"
-            ]
+            "token.actions.githubusercontent.com:sub" = local.repo_branch_refs
           }
         }
       }

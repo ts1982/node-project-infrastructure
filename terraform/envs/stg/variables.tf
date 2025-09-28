@@ -109,15 +109,15 @@ variable "acm_arn_us_east_1" {
 }
 
 # GitHub OIDC
-variable "github_repository" {
-  description = "GitHub repository in format owner/repo"
-  type        = string
+variable "github_repositories" {
+  description = "List of GitHub repositories that can assume this role"
+  type        = list(string)
 }
 
-variable "github_branch" {
-  description = "GitHub branch for OIDC"
-  type        = string
-  default     = "main"
+variable "github_branches" {
+  description = "List of GitHub branches that can assume this role"
+  type        = list(string)
+  default     = ["staging", "main"]
 }
 
 # Backend secrets
