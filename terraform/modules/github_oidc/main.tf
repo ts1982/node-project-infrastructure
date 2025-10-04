@@ -205,6 +205,8 @@ resource "aws_iam_policy" "github_actions_backend" {
           "iam:DeletePolicy",
           "iam:DeleteInstanceProfile",
           "iam:RemoveRoleFromInstanceProfile",
+          "iam:ListPolicyVersions",
+          "iam:ListInstanceProfilesForRole",
           "ecs:*",
           "ec2:*",
           "autoscaling:*",
