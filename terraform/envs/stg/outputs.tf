@@ -101,6 +101,11 @@ output "estimated_monthly_cost" {
 
 # GitHub OIDC
 output "github_oidc_role_arn" {
-  description = "ARN of the GitHub OIDC IAM role"
+  description = "ARN of the GitHub OIDC IAM role (backend)"
   value       = module.github_oidc.backend_role_arn
+}
+
+output "github_oidc_infra_admin_role_arn" {
+  description = "ARN of the GitHub OIDC Infrastructure Admin IAM role"
+  value       = module.github_oidc.infra_admin_role_arn
 }

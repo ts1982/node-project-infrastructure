@@ -22,3 +22,13 @@ output "frontend_role_name" {
   description = "Name of the GitHub Actions frontend role"
   value       = aws_iam_role.github_actions_frontend.name
 }
+
+output "infra_admin_role_arn" {
+  description = "ARN of the GitHub Actions infrastructure admin role"
+  value       = aws_iam_role.github_actions_infra_admin.arn
+}
+
+output "infra_admin_role_name" {
+  description = "Name of the GitHub Actions infrastructure admin role"
+  value       = aws_iam_role.github_actions_infra_admin.name
+}

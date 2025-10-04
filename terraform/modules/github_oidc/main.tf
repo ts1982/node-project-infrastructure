@@ -207,6 +207,8 @@ resource "aws_iam_policy" "github_actions_backend" {
           "iam:RemoveRoleFromInstanceProfile",
           "iam:ListPolicyVersions",
           "iam:ListInstanceProfilesForRole",
+          "iam:DeleteOpenIDConnectProvider",
+          "iam:DeletePolicyVersion",
           "ecs:*",
           "ec2:*",
           "autoscaling:*",

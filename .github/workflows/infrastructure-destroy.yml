@@ -237,26 +237,42 @@ jobs:
 
           echo "✅ Pre-scaling completed"
 
-      - name: Terraform Destroy
+      - name: Terraform Destroy - Phase 1 (Application Resources)
         working-directory: ${{ needs.validate.outputs.tf_dir }}
         run: |
-          echo "🗑️ Starting infrastructure destruction..."
-
-          # Apply the destroy plan with timeout
-          timeout 1800 terraform apply destroy.tfplan || {
-            echo "❌ Terraform destroy timed out or failed"
-            echo "## ⚠️ Destroy Issues Detected" >> $GITHUB_STEP_SUMMARY
+          echo "🗑️ Phase 1: Destroying application resources (excluding GitHub OIDC)..."
+          
+          # Create a targeted destroy plan excluding GitHub OIDC resources
+          timeout 1800 terraform destroy \
+            -target=module.ecs \
+            -target=module.vpc \
+            -target=module.cloudfront_api \
+            -target=module.secrets \
+            -target=module.ebs \
+            -target=module.ecr \
+            -target=aws_lambda_function.route53_updater \
+            -target=aws_cloudwatch_event_rule.asg_events \
+            -target=aws_cloudwatch_event_target.lambda_target \
+            -target=aws_cloudwatch_log_group.lambda_logs \
+            -target=aws_lambda_permission.allow_eventbridge \
+            -target=aws_iam_role.lambda_role \
+            -target=aws_iam_role_policy.lambda_policy \
+            -target=aws_route53_record.ecs_backend \
+            -target=aws_route53_record.api \
+            -target=aws_route53_record.api_ipv6 \
+            -auto-approve || {
+            echo "❌ Phase 1 destroy failed"
+            echo "## ⚠️ Phase 1 Destroy Issues" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "The destroy operation encountered issues. Resources may still exist in AWS." >> $GITHUB_STEP_SUMMARY
+            echo "Application resources destruction encountered issues." >> $GITHUB_STEP_SUMMARY
             echo "Please check the AWS Console manually." >> $GITHUB_STEP_SUMMARY
             exit 1
           }
-
-          echo "## ✅ Destroy Complete" >> $GITHUB_STEP_SUMMARY
+          
+          echo "## ✅ Phase 1 Complete" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Environment **${{ github.event.inputs.environment }}** has been destroyed." >> $GITHUB_STEP_SUMMARY
-          echo "- **Completed at**: $(date -u)" >> $GITHUB_STEP_SUMMARY
-          echo "- **Triggered by**: @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "Application resources for **${{ github.event.inputs.environment }}** have been destroyed." >> $GITHUB_STEP_SUMMARY
+          echo "- **Phase 1 completed at**: $(date -u)" >> $GITHUB_STEP_SUMMARY
 
       - name: Cleanup Lambda zip (if staging)
         if: github.event.inputs.environment == 'stg' && always()
@@ -265,21 +281,104 @@ jobs:
           rm -f lambda_function.zip
           echo "🧹 Cleaned up lambda_function.zip"
 
+  # Phase 2: Infrastructure management resources
+  destroy-infra:
+    runs-on: ubuntu-latest
+    needs: [validate, destroy]
+    if: needs.validate.outputs.can_proceed == 'true' && needs.destroy.result == 'success'
+    environment: ${{ github.event.inputs.environment }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Configure AWS credentials (Infrastructure Admin Role)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ format('arn:aws:iam::099355342767:role/studify-{0}-github-actions-infra-admin', github.event.inputs.environment) }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform Init
+        working-directory: ${{ needs.validate.outputs.tf_dir }}
+        run: terraform init
+
+      - name: Create terraform.tfvars for destroy
+        working-directory: ${{ needs.validate.outputs.tf_dir }}
+        run: |
+          echo "Creating terraform.tfvars from example..."
+          if [ -f terraform.tfvars.example ]; then
+            cp terraform.tfvars.example terraform.tfvars
+            echo "✅ terraform.tfvars created from example"
+          else
+            echo "❌ terraform.tfvars.example not found!"
+            echo "Available files:"
+            ls -la
+            exit 1
+          fi
+
+      - name: Build Lambda package (if staging)
+        if: github.event.inputs.environment == 'stg'
+        working-directory: ${{ needs.validate.outputs.tf_dir }}
+        run: |
+          if [ ! -f lambda_function.zip ]; then
+            echo "Creating lambda_function.zip for destroy..."
+            zip lambda_function.zip lambda/update_route53.py
+          fi
+
+      - name: Terraform Destroy - Phase 2 (GitHub OIDC Resources)
+        working-directory: ${{ needs.validate.outputs.tf_dir }}
+        run: |
+          echo "🗑️ Phase 2: Destroying GitHub OIDC infrastructure resources..."
+          
+          # Destroy remaining GitHub OIDC resources (except infra admin)
+          timeout 600 terraform destroy \
+            -target=module.github_oidc.aws_iam_role.github_actions_backend \
+            -target=module.github_oidc.aws_iam_role.github_actions_frontend \
+            -target=module.github_oidc.aws_iam_policy.github_actions_backend \
+            -target=module.github_oidc.aws_iam_policy.github_actions_frontend \
+            -target=module.github_oidc.aws_iam_role_policy_attachment.github_actions_backend \
+            -target=module.github_oidc.aws_iam_role_policy_attachment.github_actions_frontend \
+            -target=module.github_oidc.aws_iam_openid_connect_provider.github_actions \
+            -auto-approve || {
+            echo "❌ Phase 2 destroy failed"
+            echo "## ⚠️ Phase 2 Destroy Issues" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "GitHub OIDC resources destruction encountered issues." >> $GITHUB_STEP_SUMMARY
+            exit 1
+          }
+          
+          echo "## ✅ Complete Infrastructure Destroy" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Environment **${{ github.event.inputs.environment }}** has been completely destroyed." >> $GITHUB_STEP_SUMMARY
+          echo "- **Phase 1**: Application resources destroyed" >> $GITHUB_STEP_SUMMARY
+          echo "- **Phase 2**: GitHub OIDC infrastructure destroyed" >> $GITHUB_STEP_SUMMARY
+          echo "- **Completed at**: $(date -u)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Triggered by**: @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+
   # Notification job (optional)
   notify:
     runs-on: ubuntu-latest
-    needs: [validate, destroy]
+    needs: [validate, destroy, destroy-infra]
     if: always() && needs.validate.outputs.can_proceed == 'true'
 
     steps:
       - name: Notify completion
         run: |
-          if [ "${{ needs.destroy.result }}" = "success" ]; then
-            echo "✅ Infrastructure destroy completed successfully"
+          if [ "${{ needs.destroy.result }}" = "success" ] && [ "${{ needs.destroy-infra.result }}" = "success" ]; then
+            echo "✅ Complete infrastructure destroy completed successfully"
             echo "Environment: ${{ github.event.inputs.environment }}"
+            echo "Phase 1 (Application): ${{ needs.destroy.result }}"
+            echo "Phase 2 (OIDC Infrastructure): ${{ needs.destroy-infra.result }}"
             echo "Triggered by: @${{ github.actor }}"
           else
-            echo "❌ Infrastructure destroy failed"
+            echo "❌ Infrastructure destroy had issues"
             echo "Environment: ${{ github.event.inputs.environment }}"
+            echo "Phase 1 (Application): ${{ needs.destroy.result }}"
+            echo "Phase 2 (OIDC Infrastructure): ${{ needs.destroy-infra.result }}"
             echo "Check the logs for details"
           fi
