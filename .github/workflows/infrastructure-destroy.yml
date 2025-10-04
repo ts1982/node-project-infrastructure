@@ -241,7 +241,7 @@ jobs:
         working-directory: ${{ needs.validate.outputs.tf_dir }}
         run: |
           echo "🗑️ Phase 1: Destroying application resources (excluding GitHub OIDC)..."
-          
+
           # Create a targeted destroy plan excluding GitHub OIDC resources
           timeout 1800 terraform destroy \
             -target=module.ecs \
@@ -268,7 +268,7 @@ jobs:
             echo "Please check the AWS Console manually." >> $GITHUB_STEP_SUMMARY
             exit 1
           }
-          
+
           echo "## ✅ Phase 1 Complete" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Application resources for **${{ github.event.inputs.environment }}** have been destroyed." >> $GITHUB_STEP_SUMMARY
@@ -287,7 +287,7 @@ jobs:
     needs: [validate, destroy]
     if: needs.validate.outputs.can_proceed == 'true' && needs.destroy.result == 'success'
     environment: ${{ github.event.inputs.environment }}
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -334,7 +334,7 @@ jobs:
         working-directory: ${{ needs.validate.outputs.tf_dir }}
         run: |
           echo "🗑️ Phase 2: Destroying GitHub OIDC infrastructure resources..."
-          
+
           # Destroy remaining GitHub OIDC resources (except infra admin)
           timeout 600 terraform destroy \
             -target=module.github_oidc.aws_iam_role.github_actions_backend \
@@ -351,7 +351,7 @@ jobs:
             echo "GitHub OIDC resources destruction encountered issues." >> $GITHUB_STEP_SUMMARY
             exit 1
           }
-          
+
           echo "## ✅ Complete Infrastructure Destroy" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Environment **${{ github.event.inputs.environment }}** has been completely destroyed." >> $GITHUB_STEP_SUMMARY

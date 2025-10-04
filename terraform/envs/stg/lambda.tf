@@ -32,6 +32,15 @@ resource "aws_iam_role" "lambda_role" {
 }
 
 # IAM policy for Lambda (minimal permissions, Route53-based)
+# Wait for IAM role propagation
+resource "null_resource" "lambda_role_propagation" {
+  provisioner "local-exec" {
+    command = "sleep 10"
+  }
+
+  depends_on = [aws_iam_role.lambda_role]
+}
+
 resource "aws_iam_role_policy" "lambda_policy" {
   name = "${var.project}-${var.env}-route53-updater-policy"
   role = aws_iam_role.lambda_role.id
@@ -105,7 +114,11 @@ resource "aws_lambda_function" "route53_updater" {
     Purpose     = "Route53 Record Update"
   }
 
-  depends_on = [aws_iam_role_policy.lambda_policy]
+  depends_on = [
+    aws_iam_role.lambda_role,
+    aws_iam_role_policy.lambda_policy,
+    null_resource.lambda_role_propagation
+  ]
 }
 
 # CloudWatch Log Group (cost-optimized)
