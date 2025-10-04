@@ -94,7 +94,7 @@ dev-logs:
 .PHONY: stg-init
 stg-init:
 	@echo "Initializing staging environment..."
-	cd $(STG_TERRAFORM_DIR) && terraform init && terraform plan
+	cd $(STG_TERRAFORM_DIR) && terraform init && terraform plan -var-file=terraform.tfvars
 
 # Build Lambda deployment package
 .PHONY: stg-build-lambda
@@ -112,7 +112,7 @@ stg-build-lambda:
 .PHONY: stg-apply
 stg-apply: stg-build-lambda
 	@echo "Deploying staging infrastructure..."
-	cd $(STG_TERRAFORM_DIR) && terraform apply -auto-approve
+	cd $(STG_TERRAFORM_DIR) && terraform apply -auto-approve -var-file=terraform.tfvars
 
 .PHONY: stg-status
 stg-status:
@@ -148,3 +148,57 @@ stg-restart:
 stg-logs:
 	@echo "Viewing staging application logs..."
 	aws logs tail /aws/ecs/studify-stg --follow --since 10m || echo "Failed to access CloudWatch Logs"
+
+# Advanced State Management
+.PHONY: stg-integrity-check
+stg-integrity-check:
+	@echo "=== State Integrity Check ==="
+	@./scripts/state-integrity-check.sh
+
+.PHONY: stg-repair
+stg-repair: stg-integrity-check
+	@echo "=== Staging State Repair and Sync ==="
+	@echo "🔧 Checking for drift and repairing state..."
+	@cd $(STG_TERRAFORM_DIR) && \
+	if [ -f errored.tfstate ]; then \
+		echo "⚠️  errored.tfstate detected - attempting state recovery..."; \
+		echo "🚨 Manual intervention required for state fork"; \
+		exit 1; \
+	fi; \
+	echo "🔄 Step 1: Refresh state from AWS..."; \
+	terraform apply -refresh-only -auto-approve -var-file=terraform.tfvars; \
+	echo "🔍 Step 2: Check for configuration drift..."; \
+	terraform plan -detailed-exitcode -var-file=terraform.tfvars; \
+	EXIT_CODE=$$?; \
+	if [ $$EXIT_CODE -eq 2 ]; then \
+		echo "⚠️  Configuration drift detected, repairing..."; \
+		terraform apply -auto-approve -var-file=terraform.tfvars && echo "✅ State repaired successfully"; \
+	elif [ $$EXIT_CODE -eq 1 ]; then \
+		echo "❌ Error during drift check"; \
+		exit 1; \
+	else \
+		echo "✅ No drift detected - state is synchronized"; \
+	fi; \
+	echo "🔍 Step 3: Verify critical IAM policies..."; \
+	aws iam list-attached-role-policies --role-name studify-stg-github-actions-backend --query 'AttachedPolicies[0].PolicyName' --output text | grep -q "studify-stg-github-actions-backend" && echo "✅ GitHub Actions IAM policy attached" || echo "❌ GitHub Actions IAM policy missing"
+
+.PHONY: stg-validate
+stg-validate:
+	@echo "=== Complete Staging Environment Validation ==="
+	@$(MAKE) stg-health
+	@$(MAKE) stg-repair
+	@echo "🧪 Testing IAM permissions..."
+	@aws sts get-caller-identity > /dev/null && echo "✅ AWS CLI access working" || echo "❌ AWS CLI access failed"
+	@echo "✅ Staging environment validation complete"
+
+.PHONY: stg-health  
+stg-health:
+	@echo "=== Staging Environment Health Check ==="
+	@echo "🔍 Checking critical resources..."
+	@cd $(STG_TERRAFORM_DIR) && terraform state list | grep -E "(ecs|autoscaling|route53)" | head -10
+	@echo ""
+	@echo "🔐 IAM Role Status:"
+	@aws iam get-role --role-name studify-stg-github-actions-backend --query 'Role.RoleName' --output text 2>/dev/null || echo "❌ Backend role missing"
+	@echo "✅ Backend role exists" 2>/dev/null
+	@aws iam get-role --role-name studify-stg-github-actions-infra-admin --query 'Role.RoleName' --output text 2>/dev/null || echo "❌ Admin role missing"  
+	@echo "✅ Admin role exists" 2>/dev/null

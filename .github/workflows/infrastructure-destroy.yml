@@ -98,6 +98,44 @@ jobs:
             ls -la
             exit 1
           fi
+      - name: State Repair and Validation
+        working-directory: ${{ needs.validate.outputs.tf_dir }}
+        run: |
+          echo "🔧 Checking for state drift and repairing if needed..."
+
+          # Show terraform.tfvars content for debugging
+          echo "📄 Content of terraform.tfvars:"
+          cat terraform.tfvars
+
+          # Pre-check: Detect errored.tfstate (state fork)
+          if [ -f errored.tfstate ]; then
+            echo "⚠️  CRITICAL: errored.tfstate detected - state fork present"
+            echo "🔢 File sizes - errored: $(wc -c < errored.tfstate), remote: $(terraform state pull | wc -c)"
+            echo "🛑 State integrity compromised - manual intervention required"
+            exit 1
+          fi
+
+          # Step 1: Refresh state to detect drift
+          echo "🔄 Refreshing state from AWS..."
+          terraform apply -refresh-only -auto-approve -var-file=terraform.tfvars          # Step 2: Check if there are any changes needed
+          echo "🔍 Checking for configuration drift..."
+          terraform plan -detailed-exitcode -var-file=terraform.tfvars
+          exit_code=$?
+
+          if [ $exit_code -eq 1 ]; then
+            echo "❌ Error during drift check"
+            exit 1
+          elif [ $exit_code -eq 2 ]; then
+            echo "⚠️ State drift detected - applying fixes before destroy planning..."
+            terraform apply -auto-approve -var-file=terraform.tfvars
+            echo "✅ State repaired - ready for destroy planning"
+          else
+            echo "✅ No drift detected - state is synchronized"
+          fi
+
+          # Step 3: Verify critical IAM policies
+          echo "🔐 Verifying GitHub Actions IAM policies..."
+          aws iam list-attached-role-policies --role-name studify-stg-github-actions-backend --query "AttachedPolicies[0].PolicyName" --output text | grep -q "studify-stg-github-actions-backend" && echo "✅ Backend IAM policy verified" || (echo "❌ Backend IAM policy missing" && exit 1)
 
       - name: Build Lambda package (if staging)
         if: github.event.inputs.environment == 'stg'
@@ -115,7 +153,7 @@ jobs:
           echo "## 🗑️ Terraform Destroy Plan for ${{ github.event.inputs.environment }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          terraform plan -destroy -out=destroy.tfplan -no-color | tee plan_output.txt
+          terraform plan -destroy -out=destroy.tfplan -no-color -var-file=terraform.tfvars | tee plan_output.txt
 
           # Count resources to be destroyed
           DESTROY_COUNT=$(grep -c "# .* will be destroyed" plan_output.txt || echo "0")
@@ -242,7 +280,8 @@ jobs:
         run: |
           echo "🗑️ Phase 1: Destroying application resources (excluding GitHub OIDC)..."
 
-          # Create a targeted destroy plan excluding GitHub OIDC resources
+          # Create a targeted destroy plan excluding GitHub OIDC resources AND Route53 records
+          # Note: Route53 records require route53:GetChange permission, so they're handled later
           timeout 1800 terraform destroy \
             -target=module.ecs \
             -target=module.vpc \
@@ -258,8 +297,7 @@ jobs:
             -target=aws_iam_role.lambda_role \
             -target=aws_iam_role_policy.lambda_policy \
             -target=aws_route53_record.ecs_backend \
-            -target=aws_route53_record.api \
-            -target=aws_route53_record.api_ipv6 \
+            -var-file=terraform.tfvars \
             -auto-approve || {
             echo "❌ Phase 1 destroy failed"
             echo "## ⚠️ Phase 1 Destroy Issues" >> $GITHUB_STEP_SUMMARY
@@ -297,29 +335,48 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      - name: Configure AWS credentials (Infrastructure Admin Role)
+      - name: Configure AWS credentials (GitHub Actions Backend Role - for Route53)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ format('arn:aws:iam::099355342767:role/studify-{0}-github-actions-infra-admin', github.event.inputs.environment) }}
+          role-to-assume: ${{ format('arn:aws:iam::099355342767:role/studify-{0}-github-actions-backend', github.event.inputs.environment) }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Terraform Init
         working-directory: ${{ needs.validate.outputs.tf_dir }}
         run: terraform init
 
-      - name: Create terraform.tfvars for destroy
+      - name: Destroy Route53 Records First (Priority Deletion)
         working-directory: ${{ needs.validate.outputs.tf_dir }}
         run: |
-          echo "Creating terraform.tfvars from example..."
+          echo "🗑️ Phase 1.5: Destroying Route53 records with GitHub Actions backend permissions..."
+
+          # Create terraform.tfvars first
           if [ -f terraform.tfvars.example ]; then
             cp terraform.tfvars.example terraform.tfvars
-            echo "✅ terraform.tfvars created from example"
-          else
-            echo "❌ terraform.tfvars.example not found!"
-            echo "Available files:"
-            ls -la
-            exit 1
           fi
+
+          # Ensure GitHub Actions backend IAM policy exists for Route53 operations
+          echo "🔐 Verifying GitHub Actions backend permissions..."
+          if ! aws iam list-attached-role-policies --role-name studify-${{ github.event.inputs.environment }}-github-actions-backend --query 'AttachedPolicies[0].PolicyName' --output text | grep -q "studify-${{ github.event.inputs.environment }}-github-actions-backend"; then
+            echo "⚠️  GitHub Actions backend IAM policy missing - recreating..."
+            terraform apply -target=module.github_oidc.aws_iam_policy.github_actions_backend -target=module.github_oidc.aws_iam_role_policy_attachment.github_actions_backend -auto-approve -var-file=terraform.tfvars
+          fi
+
+          # Destroy Route53 records that require GetChange permissions
+          echo "🗑️ Destroying Route53 API records..."
+          terraform destroy \
+            -target=aws_route53_record.api \
+            -target=aws_route53_record.api_ipv6 \
+            -var-file=terraform.tfvars \
+            -auto-approve || {
+            echo "⚠️  Route53 record deletion failed but continuing..."
+          }
+
+      - name: Configure AWS credentials (Infrastructure Admin Role)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ format('arn:aws:iam::099355342767:role/studify-{0}-github-actions-infra-admin', github.event.inputs.environment) }}
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Build Lambda package (if staging)
         if: github.event.inputs.environment == 'stg'
@@ -344,6 +401,7 @@ jobs:
             -target=module.github_oidc.aws_iam_role_policy_attachment.github_actions_backend \
             -target=module.github_oidc.aws_iam_role_policy_attachment.github_actions_frontend \
             -target=module.github_oidc.aws_iam_openid_connect_provider.github_actions \
+            -var-file=terraform.tfvars \
             -auto-approve || {
             echo "❌ Phase 2 destroy failed"
             echo "## ⚠️ Phase 2 Destroy Issues" >> $GITHUB_STEP_SUMMARY
